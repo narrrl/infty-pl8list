@@ -37,13 +37,13 @@ from pl8list import Client, LoginError, LoginFlow
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
-EVENT_KINDS = {"play", "like", "unlike", "skip", "complete"}
+EVENT_KINDS = {"play", "like", "unlike", "skip", "complete", "dislike"}
 # Only HLS playlists and segments are proxied, nothing else on pl8list.
 PROXY_RE = re.compile(r"^/api/[^/]+/[^/]+/hls/(playlist\.m3u8|segment/\d+)$")
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]+$")
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css",
-    ".png": "image/png", ".svg": "image/svg+xml",
+    ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json",
 }
 SESSION_COOKIE = "pl8inf"
 LOGIN_COOKIE = "pl8inf_login"
@@ -353,9 +353,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"tracks": tracks, "stats": stats})
 
     def likes(self, user):
-        liked = ranker.taste(self.db, user["id"])["liked_ids"]
-        rows = self.db.query("SELECT * FROM tracks WHERE id IN (%s)" % ",".join("?" * len(liked)), list(liked)) \
-            if liked else []
+        liked = list(ranker.taste(self.db, user["id"])["liked_ids"])
+        rows = self.db.query("""
+            SELECT t.*, MAX(e.ts) AS liked_at FROM events e JOIN tracks t ON t.id = e.track_id
+            WHERE e.user_id = ? AND e.kind = 'like' AND t.id IN (%s)
+            GROUP BY t.id ORDER BY liked_at DESC
+        """ % ",".join("?" * len(liked)), [user["id"]] + liked) if liked else []
         self.send_json({"tracks": [ranker.serialize(r) for r in rows]})
 
     def proxy(self, url):

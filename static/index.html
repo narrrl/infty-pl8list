@@ -4,17 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>pl8list ∞</title>
+  <meta name="description" content="Endless scroll through pl8list, tuned to what you like.">
+  <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="pl8 ∞">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js"
           integrity="sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn"
           crossorigin="anonymous"></script>
 </head>
 <body>
+  <!-- Shared icons, referenced with <use href="#i-…">. -->
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-heart" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21s-7.5-4.6-10-9.3C.4 8.4 2.3 4.5 6 4.5c2.2 0 3.6 1.2 6 3.6 2.4-2.4 3.8-3.6 6-3.6 3.7 0 5.6 3.9 4 7.2C19.5 16.4 12 21 12 21z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></symbol>
+    <symbol id="i-open" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M7 17 17 7M9 7h8v8"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v16M6 14l6 6 6-6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path fill="currentColor" d="M7 4.5h3.5v15H7zM13.5 4.5H17v15h-3.5z"/></symbol>
+  </svg>
+
   <header id="bar" hidden>
     <span class="logo">pl8list <b>∞</b></span>
     <span id="stats"></span>
-    <button id="filters-btn" type="button">filters</button>
-    <button id="likes-btn" type="button">likes</button>
+    <button id="filters-btn" type="button" aria-controls="filters" aria-expanded="false">filters</button>
+    <button id="likes-btn" type="button" aria-controls="likes" aria-expanded="false">likes</button>
+    <button id="help-btn" type="button" title="shortcuts (?)" aria-label="help">?</button>
     <button id="logout-btn" type="button" title="sign out"></button>
   </header>
 
@@ -45,24 +66,50 @@
     </div>
   </div>
 
-  <form id="filters" hidden>
+  <form id="filters" class="panel" hidden>
     <label><input type="checkbox" name="free"> free only</label>
     <label>bpm <input type="number" name="bpm_min" min="40" max="250" placeholder="min"></label>
     <label>– <input type="number" name="bpm_max" min="40" max="250" placeholder="max"></label>
     <button type="submit">apply</button>
+    <button type="button" id="filters-clear" class="link">clear</button>
   </form>
 
-  <aside id="likes" hidden>
+  <aside id="likes" class="panel" hidden>
     <h2>likes</h2>
     <ol id="likes-list"></ol>
   </aside>
 
   <main id="feed"></main>
 
-  <div id="start">
-    <button type="button">tap to start</button>
-    <p>↑ ↓ / j k scroll · space play/pause · ← → seek · l like</p>
+  <div id="start" hidden>
+    <button type="button">tap anywhere to start</button>
   </div>
+
+  <div id="help" hidden>
+    <div class="help-box">
+      <h2>controls</h2>
+      <dl class="touch-only">
+        <dt>tap</dt><dd>play / pause</dd>
+        <dt>double-tap</dt><dd>like</dd>
+        <dt>swipe up</dt><dd>next track</dd>
+        <dt>drag waveform</dt><dd>seek</dd>
+      </dl>
+      <dl class="pointer-only">
+        <dt>click · space</dt><dd>play / pause</dd>
+        <dt>double-click · l</dt><dd>like</dd>
+        <dt>↓ j · ↑ k</dt><dd>next / previous</dd>
+        <dt>← →</dt><dd>seek 10 s</dd>
+        <dt>x</dt><dd>not for me</dd>
+        <dt>s</dt><dd>share</dd>
+        <dt>m</dt><dd>mute</dd>
+        <dt>?</dt><dd>this help</dd>
+      </dl>
+      <p>Lock-screen and headphone buttons work too.</p>
+      <button type="button" id="help-close">got it</button>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <audio id="audio" preload="auto"></audio>
 
@@ -70,19 +117,28 @@
     <section class="card">
       <div class="bg"></div>
       <div class="content">
-        <div class="art"></div>
+        <div class="art">
+          <span class="initial"></span>
+          <span class="paused-badge"><svg><use href="#i-play"/></svg></span>
+          <span class="spinner"></span>
+        </div>
         <h1 class="title"></h1>
         <a class="artist" target="_blank" rel="noopener"></a>
         <div class="chips"></div>
         <p class="desc"></p>
-        <canvas class="wave"></canvas>
+        <div class="wave-wrap">
+          <canvas class="wave"></canvas>
+          <span class="wave-tip"></span>
+        </div>
         <div class="time"><span class="cur">0:00</span><span class="dur"></span></div>
         <div class="counts"></div>
       </div>
       <nav class="actions">
-        <button type="button" class="like" title="like (l)">♥</button>
-        <a class="open" target="_blank" rel="noopener" title="open on pl8list"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></a>
-        <button type="button" class="next" title="next (j)">↓</button>
+        <button type="button" class="like" title="like (l)" aria-label="like"><svg><use href="#i-heart"/></svg></button>
+        <button type="button" class="dislike" title="not for me (x)" aria-label="not for me"><svg><use href="#i-x"/></svg></button>
+        <button type="button" class="share" title="share (s)" aria-label="share"><svg><use href="#i-share"/></svg></button>
+        <a class="open" target="_blank" rel="noopener" title="open on pl8list" aria-label="open on pl8list"><svg><use href="#i-open"/></svg></a>
+        <button type="button" class="next" title="next (j)" aria-label="next"><svg><use href="#i-down"/></svg></button>
       </nav>
     </section>
   </template>

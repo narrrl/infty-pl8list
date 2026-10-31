@@ -29,7 +29,7 @@ WEIGHTS = {
     "exploration": 0.6,
 }
 # Per-event contributions to artist affinity.
-EVENT_SIGNAL = {"like": 3.0, "unlike": -3.0, "complete": 1.5, "skip": -1.0}
+EVENT_SIGNAL = {"like": 3.0, "unlike": -3.0, "complete": 1.5, "skip": -1.0, "dislike": -3.0}
 REPEAT_ARTIST_PENALTY = 1.5
 RECENT_ARTIST_WINDOW = 6
 
@@ -60,7 +60,7 @@ def taste(db, user_id):
     rows = db.query("""
         SELECT e.track_id, e.kind, e.seconds, t.handle, t.bpm, t.key
         FROM events e JOIN tracks t ON t.id = e.track_id
-        WHERE e.user_id = ? AND e.kind IN ('like', 'unlike', 'complete', 'skip')
+        WHERE e.user_id = ? AND e.kind IN ('like', 'unlike', 'complete', 'skip', 'dislike')
         ORDER BY e.ts
     """, (user_id,))
     artist = defaultdict(float)

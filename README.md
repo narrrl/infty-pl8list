@@ -59,15 +59,20 @@ local session token is stored. Logins are rate-limited to 5 per IP and 3 per ema
 
 ## Controls
 
-| key            | action           |
-| -------------- | ---------------- |
-| ↓ / j, ↑ / k   | next / previous  |
-| space          | play / pause     |
-| ← / →          | seek 10 s        |
-| l              | like             |
+| phone            | desktop              | action                         |
+| ---------------- | -------------------- | ------------------------------ |
+| tap              | click · space        | play / pause                   |
+| double-tap       | double-click · l     | like                           |
+| swipe up / down  | ↓ j · ↑ k            | next / previous                |
+| drag waveform    | drag waveform · ← →  | seek                           |
+| ✕ button         | x                    | not for me (skip, show less)   |
+| share button     | s                    | share / copy link              |
+|                  | m                    | mute                           |
+|                  | ? · Esc              | help · close panels            |
 
-Click the waveform to seek. "filters" sets free-only and a BPM range. "likes" lists everything
-you liked, with links to pl8list.
+Lock-screen, notification and headphone buttons control playback too (Media Session API).
+"likes" lists your likes newest first; ▶ plays one right away. Filters (free only, BPM range)
+are remembered per browser. The site can be installed to the home screen as an app.
 
 ## How it works
 
@@ -96,7 +101,7 @@ one request every 20 seconds. When a user likes or finishes a track, its related
 its artist's catalogue are crawled first.
 
 **Ranking** (`ranker.py`). Each track the user has not seen yet gets a score from popularity,
-freshness, artist affinity (from their likes, completions and skips), closeness to the BPM and
+freshness, artist affinity (from their likes, completions, skips and "not for me"), closeness to the BPM and
 key of tracks they liked, whether it is related to something they liked, and some random
 exploration. Artists are then spread out so you don't get five tracks from one person in a
 row. Tune `WEIGHTS` at the top of the file.
