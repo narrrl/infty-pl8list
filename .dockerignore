@@ -1,0 +1,9 @@
+.git
+.env
+*.db
+*.db-*
+__pycache__/
+docs/
+README.md
+compose*.yaml
+Dockerfile

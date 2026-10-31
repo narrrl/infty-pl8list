@@ -1,0 +1,32 @@
+# Generic setup: app on 127.0.0.1:8790. Put reverse proxy (Traefik labels, networks)
+# in compose.override.yaml and drop the port mapping if the proxy reaches the
+# container over a Docker network.
+services:
+  app:
+    build: .
+    image: pl8list-infinite:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TRUST_PROXY: "0"
+    ports:
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "3"
+
+volumes:
+  data:

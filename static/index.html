@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>pl8list ∞</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js"
+          integrity="sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn"
+          crossorigin="anonymous"></script>
+</head>
+<body>
+  <header id="bar" hidden>
+    <span class="logo">pl8list <b>∞</b></span>
+    <span id="stats"></span>
+    <button id="filters-btn" type="button">filters</button>
+    <button id="likes-btn" type="button">likes</button>
+    <button id="logout-btn" type="button" title="sign out"></button>
+  </header>
+
+  <div id="login" hidden>
+    <div class="login-box">
+      <h1>pl8list <b>∞</b></h1>
+      <p class="tagline">endless scroll through pl8list, tuned to what you like</p>
+      <form id="email-form">
+        <label for="email">sign in with your pl8list email</label>
+        <input id="email" type="email" name="email" autocomplete="email" required placeholder="you@example.com">
+        <button type="submit">send code</button>
+      </form>
+      <form id="code-form" hidden>
+        <label for="code">pl8list sent a 6-digit code to <span id="sent-to"></span></label>
+        <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
+               maxlength="6" required placeholder="123456">
+        <button type="submit">sign in</button>
+        <div class="login-links">
+          <button type="button" id="resend" class="link">resend code</button>
+          <button type="button" id="restart" class="link">use another email</button>
+        </div>
+      </form>
+      <p id="login-error" role="alert"></p>
+      <p class="fineprint">
+        No account? <a href="https://pl8list.com/signup" target="_blank" rel="noopener">sign up on pl8list</a>.
+        This site is not affiliated with pl8list. It never stores your pl8list login.
+      </p>
+    </div>
+  </div>
+
+  <form id="filters" hidden>
+    <label><input type="checkbox" name="free"> free only</label>
+    <label>bpm <input type="number" name="bpm_min" min="40" max="250" placeholder="min"></label>
+    <label>– <input type="number" name="bpm_max" min="40" max="250" placeholder="max"></label>
+    <button type="submit">apply</button>
+  </form>
+
+  <aside id="likes" hidden>
+    <h2>likes</h2>
+    <ol id="likes-list"></ol>
+  </aside>
+
+  <main id="feed"></main>
+
+  <div id="start">
+    <button type="button">tap to start</button>
+    <p>↑ ↓ / j k scroll · space play/pause · ← → seek · l like</p>
+  </div>
+
+  <audio id="audio" preload="auto"></audio>
+
+  <template id="card-tpl">
+    <section class="card">
+      <div class="bg"></div>
+      <div class="content">
+        <div class="art"></div>
+        <h1 class="title"></h1>
+        <a class="artist" target="_blank" rel="noopener"></a>
+        <div class="chips"></div>
+        <p class="desc"></p>
+        <canvas class="wave"></canvas>
+        <div class="time"><span class="cur">0:00</span><span class="dur"></span></div>
+        <div class="counts"></div>
+      </div>
+      <nav class="actions">
+        <button type="button" class="like" title="like (l)">♥</button>
+        <a class="open" target="_blank" rel="noopener" title="open on pl8list"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></a>
+        <button type="button" class="next" title="next (j)">↓</button>
+      </nav>
+    </section>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

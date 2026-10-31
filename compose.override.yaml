@@ -1,0 +1,20 @@
+# pl8.narl.io behind Traefik on external "narl" network. TLS ends at Traefik; the
+# container itself is not published on any host port.
+services:
+  app:
+    environment:
+      TRUST_PROXY: "1"
+    ports: !reset []
+    networks:
+      - narl
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=narl"
+      - "traefik.http.routers.pl8list-infinite.rule=Host(`pl8.narl.io`)"
+      - "traefik.http.routers.pl8list-infinite.entrypoints=websecure"
+      - "traefik.http.routers.pl8list-infinite.tls.certresolver=https_resolver"
+      - "traefik.http.services.pl8list-infinite.loadbalancer.server.port=8790"
+
+networks:
+  narl:
+    external: true
