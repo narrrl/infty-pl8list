@@ -68,6 +68,7 @@ export class Visualizer {
   private reduced = matchMedia("(prefers-reduced-motion: reduce)");
   private setting: VisualsSetting = localStorage.getItem(VISUALS_KEY) === "simple" ? "simple" : "liquid";
   private debug: ((f: Features) => void) | null = null;
+  private dropDebug: ((text: string) => void) | null = null;
   /// A press on the drop; `on` once it moved enough to turn it.
   private grab: { id: number; x: number; y: number; on: boolean } | null = null;
   private spun = false;
@@ -103,9 +104,9 @@ export class Visualizer {
       if (this.spun) e.stopPropagation();
       this.spun = false;
     }, true);
-    if (new URLSearchParams(location.search).get("debug") === "audio") {
-      import("./debug").then((m) => { this.debug = m.audioDebug(); });
-    }
+    const debug = new URLSearchParams(location.search).get("debug");
+    if (debug === "audio") import("./debug").then((m) => { this.debug = m.audioDebug(); });
+    if (debug === "drop") import("./debug").then((m) => { this.dropDebug = m.dropDebug(); this.start(); });
   }
 
   get visuals(): VisualsSetting {
@@ -529,6 +530,11 @@ export class Visualizer {
         ? this.features.fromAnalyser(an, now / 1000, dt)
         : this.features.fromLoudness(card.loudnessAt(progress), now / 1000, dt);
     this.debug?.(f);
+    this.dropDebug?.([
+      `setting ${this.setting} · reduced motion ${this.reduced.matches} · touch ${this.touch} · mixing ${mixed}`,
+      `blob ${this.blob === undefined ? "not asked" : this.blob === null ? `failed: ${LiquidBlob.failure}` : "made"} · card liquid ${!!card.el?.classList.contains("liquid")}`,
+      this.blob?.describe() ?? "",
+    ].join("\n"));
     let busy = this.shine(now, dt, f.kick) || playing;
     const liquid = !!this.blob && !!card.el?.classList.contains("liquid");
     if (!this.reduced.matches) {

@@ -1,5 +1,6 @@
 // `?debug=audio`: live bars of what features.ts hears, for tuning its constants by
-// ear. Loaded only when asked for.
+// ear. `?debug=drop`: why the liquid drop does or does not show, readable on a
+// phone without remote dev tools. Loaded only when asked for.
 
 import type { Features } from "./features";
 
@@ -34,5 +35,19 @@ export function audioDebug(): (f: Features) => void {
       ctx.fillStyle = "#fff9";
       ctx.fillText(k, i * bar + 3, h - 3);
     });
+  };
+}
+
+/// A box of text, rewritten at most a few times a second.
+export function dropDebug(): (text: string) => void {
+  const el = document.createElement("pre");
+  el.className = "audio-debug drop-debug";
+  document.body.append(el);
+  let at = 0;
+  return (text) => {
+    const now = performance.now();
+    if (now - at < 250) return;
+    at = now;
+    el.textContent = text;
   };
 }

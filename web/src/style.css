@@ -482,6 +482,8 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   pointer-events: none;
 }
 
+.drop-debug { margin: 0; padding: 0.4rem 0.5rem; max-width: calc(100vw - 1.4rem); font: 10px/1.35 ui-monospace, monospace; color: #fffc; white-space: pre-wrap; }
+
 .card.paused .art { transform: scale(0.96); filter: brightness(0.7); }
 .paused-badge {
   position: absolute;

@@ -65,6 +65,8 @@ export interface DropState {
 }
 
 export class LiquidBlob {
+  /// Why the last `create` gave up, for `?debug=drop`.
+  static failure = "";
   readonly canvas = document.createElement("canvas");
   /// Called if the GPU drops the context; the page shows plain art until `onRestored`.
   onLost: (() => void) | null = null;
@@ -113,7 +115,8 @@ export class LiquidBlob {
     try {
       return new LiquidBlob(touch);
     } catch (err) {
-      console.warn("liquid visuals off:", (err as Error).message);
+      LiquidBlob.failure = (err as Error).message;
+      console.warn("liquid visuals off:", LiquidBlob.failure);
       return null;
     }
   }
@@ -389,6 +392,21 @@ export class LiquidBlob {
       Math.abs(calm - this.calm) > 0.005 ||
       this.busy > 0.005
     );
+  }
+
+  /// What `?debug=drop` shows: the GPU, and how far the drop got.
+  describe(): string {
+    const gl = this.gl;
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const gpu = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const hp = gl.getShaderPrecisionFormat(gl.VERTEX_SHADER, gl.HIGH_FLOAT);
+    return [
+      `gpu ${gpu}`,
+      `vertex highp ${hp ? hp.precision : "?"} bits`,
+      `ready ${this.ready} · lost ${gl.isContextLost()} · error ${gl.getError()}`,
+      `morph ${this.morph.toFixed(2)} · quality ${this.quality} · canvas ${this.canvas.width}x${this.canvas.height}`,
+      `in page ${this.canvas.isConnected} · css ${this.canvas.clientWidth}x${this.canvas.clientHeight}`,
+    ].join("\n");
   }
 
   /// Stepped down to the lowest quality: the GPU had trouble keeping up.
