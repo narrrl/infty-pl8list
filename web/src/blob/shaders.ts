@@ -59,19 +59,25 @@ float snoise(vec3 v) {
 // the play triangle, so every step between the two is one clean shape, not two
 // faded over each other.
 const ICON = /* glsl */ `
-// Inigo Quilez's polygon distance, MIT licence, for four corners.
+// Inigo Quilez's polygon distance, MIT licence, for four corners. Written out edge
+// by edge: some phone drivers (Mali) reject an array of vec2 with "no default
+// precision", and the whole drop then fails to compile.
+void quadEdge(vec2 p, vec2 a, vec2 b, inout float d, inout float s) {
+  vec2 e = b - a;
+  vec2 w = p - a;
+  vec2 q = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);
+  d = min(d, dot(q, q));
+  bvec3 c = bvec3(p.y >= a.y, p.y < b.y, e.x * w.y > e.y * w.x);
+  if (all(c) || all(not(c))) s = -s;
+}
+
 float sdQuad(vec2 p, vec2 v0, vec2 v1, vec2 v2, vec2 v3) {
-  vec2 v[4] = vec2[4](v0, v1, v2, v3);
   float d = dot(p - v0, p - v0);
   float s = 1.0;
-  for (int i = 0, j = 3; i < 4; j = i, i++) {
-    vec2 e = v[j] - v[i];
-    vec2 w = p - v[i];
-    vec2 b = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);
-    d = min(d, dot(b, b));
-    bvec3 c = bvec3(p.y >= v[i].y, p.y < v[j].y, e.x * w.y > e.y * w.x);
-    if (all(c) || all(not(c))) s = -s;
-  }
+  quadEdge(p, v0, v3, d, s);
+  quadEdge(p, v1, v0, d, s);
+  quadEdge(p, v2, v1, d, s);
+  quadEdge(p, v3, v2, d, s);
   return s * sqrt(d);
 }
 
