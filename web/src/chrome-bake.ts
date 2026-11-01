@@ -15,7 +15,10 @@ export interface BakeJob {
   w: number;
   h: number;
   bevel: number;
+  /// How far the side wall reaches down; 0 for none.
   depth: number;
+  /// How far the shadow falls and spreads; 0 for none.
+  shadow: number;
   lines: Line[];
 }
 
@@ -23,7 +26,7 @@ const INF = 1e20;
 
 /// The mask's alpha to the texture the shader lights: RG the surface normal, B
 /// the coverage of the metal (face and side wall), A the shadow under it.
-export function bake({ alpha, w, h, bevel, depth, lines }: BakeJob): Uint8Array<ArrayBuffer> {
+export function bake({ alpha, w, h, bevel, depth, shadow: fall, lines }: BakeJob): Uint8Array<ArrayBuffer> {
   const n = w * h;
   const cover = new Float32Array(n);
   // Squared distance from inside the shape to its edge, with sub-pixel edges.
@@ -41,7 +44,8 @@ export function bake({ alpha, w, h, bevel, depth, lines }: BakeJob): Uint8Array<
     height[i] = 0.6 * t + 0.4 * (1 - (1 - t) * (1 - t));
   }
   // How far down its line each pixel is; each line is a plate curved top to
-  // bottom, so its face runs from the sky through the horizon to the floor.
+  // bottom, so its face runs from the bright sky through the horizon to the upper
+  // floor, never out to the dark ends of the studio.
   const run = new Float32Array(n).fill(0.5);
   for (const l of lines) {
     const x0 = Math.max(0, Math.floor(l.left)), x1 = Math.min(w, Math.ceil(l.left + l.width));
@@ -53,14 +57,14 @@ export function bake({ alpha, w, h, bevel, depth, lines }: BakeJob): Uint8Array<
   }
   // Slope per px times the bevel width: a bevel at about 55 degrees.
   const k = 0.5 * bevel * 1.4;
-  const shadow = depth ? shadowOf(cover, w, h, depth) : null;
+  const shadow = fall ? shadowOf(cover, w, h, depth, fall) : null;
   const out = new Uint8Array(n * 4);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const hx = (x + 1 < w ? height[i + 1] : 0) - (x > 0 ? height[i - 1] : 0);
       const hy = (y + 1 < h ? height[i + w] : 0) - (y > 0 ? height[i - w] : 0);
-      let nx = -hx * k, ny = hy * k + 0.38 - run[i] * 0.8, nz = 1;
+      let nx = -hx * k, ny = hy * k + 0.25 - run[i] * 0.5, nz = 1;
       // The side wall: the nearest face above, up to `depth` px; the further
       // down from it, the more it faces the floor.
       let m = cover[i];
@@ -89,9 +93,9 @@ export function bake({ alpha, w, h, bevel, depth, lines }: BakeJob): Uint8Array<
 }
 
 /// The coverage moved down past the side wall and blurred: the shadow it casts.
-function shadowOf(cover: Float32Array, w: number, h: number, depth: number): Float32Array {
-  const drop = depth + Math.max(1, Math.round(depth * 0.5));
-  const r = Math.max(1, Math.round(depth * 0.8));
+function shadowOf(cover: Float32Array, w: number, h: number, depth: number, fall: number): Float32Array {
+  const drop = depth + Math.max(1, Math.round(fall * 0.5));
+  const r = Math.max(1, Math.round(fall * 0.8));
   let a: Float32Array<ArrayBuffer> = new Float32Array(cover.length);
   for (let y = drop; y < h; y++) a.set(cover.subarray((y - drop) * w, (y - drop + 1) * w), y * w);
   // Two box blurs each way are close enough to a gaussian.

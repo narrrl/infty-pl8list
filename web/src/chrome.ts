@@ -115,7 +115,8 @@ void main() {
   vec3 n = vec3(s.rg * 2.0 - 1.0, 0.0);
   n.z = sqrt(max(0.0, 1.0 - dot(n.xy, n.xy)));
   // Split the colours at the steep edges, like a cheap lens; a kick pushes it.
-  float split = 0.015 + (1.0 - n.z) * (0.05 + 0.3 * uKick);
+  // Text gets a third of it, so small glyphs keep clean outlines.
+  float split = (0.015 + (1.0 - n.z) * (0.05 + 0.3 * uKick)) * (wave ? 1.0 : 0.35);
   vec3 c;
   c.r = env(normalize(vec3(n.xy * (1.0 + split), n.z))).r;
   c.g = env(n).g;
@@ -231,12 +232,13 @@ export class Chrome {
     c.height = ENV_H;
     const ctx = c.getContext("2d")!;
     const half = ENV_H / 2;
-    // The sky: black overhead, rising to white at the horizon.
+    // The sky: mid grey overhead, rising to white at the horizon, so no part of a
+    // face sinks into the dark page.
     const sky = ctx.createLinearGradient(0, 0, 0, half);
-    sky.addColorStop(0, "#000000");
-    sky.addColorStop(0.3, "#16181d");
-    sky.addColorStop(0.62, "#626876");
-    sky.addColorStop(0.9, "#eef1f6");
+    sky.addColorStop(0, "#5c626e");
+    sky.addColorStop(0.35, "#7c8290");
+    sky.addColorStop(0.75, "#d6dae2");
+    sky.addColorStop(0.95, "#ffffff");
     sky.addColorStop(1, "#ffffff");
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, ENV_W, half);
@@ -245,7 +247,7 @@ export class Chrome {
     ctx.fillRect(0, half * 0.38, ENV_W, 3);
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.fillRect(ENV_W * 0.74, 0, 2, half * 0.9);
-    // The floor: black at the horizon, the card's colour and art further down.
+    // The floor: a thin dark horizon, then the card's colour and art.
     ctx.fillStyle = color;
     ctx.fillRect(0, half, ENV_W, half);
     if (img) {
@@ -258,9 +260,10 @@ export class Chrome {
       ctx.globalAlpha = 1;
     }
     const dark = ctx.createLinearGradient(0, half, 0, ENV_H);
-    dark.addColorStop(0, "rgba(0,0,0,1)");
-    dark.addColorStop(0.1, "rgba(0,0,0,0.7)");
-    dark.addColorStop(1, "rgba(0,0,0,0.1)");
+    dark.addColorStop(0, "rgba(0,0,0,0.9)");
+    dark.addColorStop(0.06, "rgba(0,0,0,0.6)");
+    dark.addColorStop(0.25, "rgba(0,0,0,0.1)");
+    dark.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = dark;
     ctx.fillRect(0, half, ENV_W, half);
     tex ??= gl.createTexture();
@@ -304,10 +307,11 @@ export class Chrome {
 
   /// Give `p` its shape: `draw` paints the mask in CSS px onto a canvas of
   /// `w` x `h` CSS px and returns, per painted region, the line it belongs to
-  /// (for the face's sky-to-floor run). `bevel` and `depth` (of the side wall
-  /// and the shadow; 0 for none) are in CSS px. Resolves once the shape is on
-  /// the GPU, or false if it was dropped or asked for again in the meantime.
-  async shape(p: Plate, w: number, h: number, bevel: number, depth: number, draw: (ctx: CanvasRenderingContext2D) => Line[]): Promise<boolean> {
+  /// (for the face's sky-to-floor run). `bevel`, `depth` (of the side wall) and
+  /// `shadow` (how far it falls; 0 for none) are in CSS px. Resolves once the
+  /// shape is on the GPU, or false if it was dropped or asked for again in the
+  /// meantime.
+  async shape(p: Plate, w: number, h: number, bevel: number, depth: number, shadow: number, draw: (ctx: CanvasRenderingContext2D) => Line[]): Promise<boolean> {
     const dpr = this.dpr;
     const W = Math.max(1, Math.round(w * dpr)), H = Math.max(1, Math.round(h * dpr));
     const mask = document.createElement("canvas");
@@ -320,7 +324,7 @@ export class Chrome {
     const alpha = ctx.getImageData(0, 0, W, H).data;
     const scaled = lines.map((l) => ({ top: l.top * dpr, height: l.height * dpr, left: l.left * dpr, width: l.width * dpr }));
     const job = ++p.job;
-    const pixels = await this.baker.bake({ alpha, w: W, h: H, bevel: bevel * dpr, depth: Math.round(depth * dpr), lines: scaled });
+    const pixels = await this.baker.bake({ alpha, w: W, h: H, bevel: bevel * dpr, depth: Math.round(depth * dpr), shadow: Math.round(shadow * dpr), lines: scaled });
     if (job !== p.job) return false;
     p.w = W;
     p.h = H;

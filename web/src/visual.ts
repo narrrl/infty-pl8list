@@ -26,7 +26,9 @@ const CHROME_FPS = 30; // at most, 20 on phones
 const TOUCH_CHROME_FPS = 20;
 const PAD = 16; // CSS px the chrome reaches past the text, for its side wall and shadow
 const BEVEL = 0.05; // of the font size
-const DEPTH = 0.09; // of the font size: how far the side wall reaches down
+const DEPTH = 0.05; // of the font size: how far the side wall reaches down …
+const WALL_MIN = 20; // … on text from this many CSS px; smaller text would clog up
+const SHADOW = 0.09; // of the font size: how far the shadow falls
 const SWEEP = 0.9; // s for the highlight to sweep across a new title
 const AIM = 4; // 1/s: how fast the light follows the pointer
 const KICK_STEP = 0.02; // a change in the kick envelope worth a frame
@@ -290,7 +292,8 @@ export class Visualizer {
     if (tkey !== d.titleKey) {
       d.titleKey = tkey;
       const size = parseFloat(getComputedStyle(el).fontSize);
-      chrome.shape(d.title, el.clientWidth + 2 * PAD, el.clientHeight + 2 * PAD, size * BEVEL, size * DEPTH, (ctx) => textMask(el, PAD, ctx)).then((ok) => {
+      const wall = size < WALL_MIN ? 0 : size * DEPTH;
+      chrome.shape(d.title, el.clientWidth + 2 * PAD, el.clientHeight + 2 * PAD, size * BEVEL, wall, size * SHADOW, (ctx) => textMask(el, PAD, ctx)).then((ok) => {
         if (!ok) return;
         // The sweep runs over the title once it is metal.
         if (!el.classList.contains("chromed")) d.sweepFrom = performance.now();
@@ -302,7 +305,7 @@ export class Visualizer {
     if (wkey !== d.waveKey) {
       d.waveKey = wkey;
       const [w, h] = [c.clientWidth, c.clientHeight];
-      chrome.shape(d.wave, w, h, CHROME_BAR * 0.25, 0, (ctx) => {
+      chrome.shape(d.wave, w, h, CHROME_BAR * 0.25, 0, 0, (ctx) => {
         const { base, tops } = d.card.waveMask(ctx, w, h, CHROME_BAR);
         d.waveW = w;
         d.bars = tops.length;
@@ -333,7 +336,7 @@ export class Visualizer {
     const key = `${el.clientWidth}x${el.clientHeight}`;
     if (key === logo.key || !el.clientWidth) return;
     logo.key = key;
-    chrome.shape(logo.plate, el.clientWidth + 2 * LOGO_PAD, el.clientHeight + 2 * LOGO_PAD, 1, 1, (ctx) => textMask(el, LOGO_PAD, ctx)).then((ok) => {
+    chrome.shape(logo.plate, el.clientWidth + 2 * LOGO_PAD, el.clientHeight + 2 * LOGO_PAD, 1, 0, 1.5, (ctx) => textMask(el, LOGO_PAD, ctx)).then((ok) => {
       if (!ok || this.logo !== logo) return;
       chrome.still(logo.plate, logo.canvas, { tint: LOGO_TINT, tilt: REST_TILT, kick: 0, sweep: -1 });
       el.classList.add("chromed");

@@ -75,7 +75,7 @@ button {
 }
 body.zen #bar { display: none; }
 
-.logo { position: relative; font: 800 0.95rem var(--font-display); display: inline-flex; align-items: center; gap: 0.4em; white-space: nowrap; justify-self: start; }
+.logo { position: relative; font: 800 0.95rem var(--font-display); letter-spacing: 0.03em; display: inline-flex; align-items: center; gap: 0.4em; white-space: nowrap; justify-self: start; }
 .logo b { position: relative; color: var(--accent); }
 .logo svg { width: 1.3em; height: 1.3em; color: var(--accent); flex: none; }
 .bar-end { justify-self: end; display: flex; align-items: center; gap: 0.4rem; }
@@ -533,8 +533,8 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 .title {
   position: relative;
   z-index: 1; /* over the drop's spill */
-  font: 800 clamp(1.1rem, 3vw, 1.5rem)/1.2 var(--font-display);
-  letter-spacing: -0.01em;
+  font: 700 clamp(1.1rem, 3vw, 1.5rem)/1.2 var(--font-display);
+  letter-spacing: 0.02em;
   margin: 0;
   overflow-wrap: anywhere;
   text-wrap: balance;
