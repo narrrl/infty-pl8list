@@ -1,0 +1,34 @@
+[package]
+name = "pl8inf"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+base64 = "0.23.1"
+bytes = "1.12.1"
+chacha20poly1305 = "0.11.0"
+futures-util = "0.3.34"
+hex = "0.4.3"
+hkdf = "0.13.0"
+percent-encoding = "2.3.2"
+rand = "0.10.3"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "stream", "form", "query", "json"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+rust-embed = "8.13.0"
+secrecy = "0.10.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+time = { version = "0.3.55", features = ["parsing"] }
+tokio = { version = "1.54.1", features = ["full"] }
+tower = { version = "0.5.3", features = ["limit", "timeout", "util"] }
+tower-http = { version = "0.7.1", features = ["timeout", "limit", "trace", "set-header"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+zeroize = "1.9.1"
+
+[dev-dependencies]
+wiremock = "0.6.5"

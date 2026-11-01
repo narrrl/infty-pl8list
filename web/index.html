@@ -10,13 +10,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="pl8 ∞">
-  <link rel="manifest" href="/static/manifest.webmanifest">
-  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js"
-          integrity="sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn"
-          crossorigin="anonymous"></script>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <!-- Everything, hls.js included, is bundled and served by us: no visitor address
+       goes to a CDN or to pl8list. -->
+  <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
   <!-- Shared icons, referenced with <use href="#i-…">. -->
@@ -32,11 +31,12 @@
 
   <header id="bar" hidden>
     <span class="logo">pl8list <b>∞</b></span>
+    <button id="mode-chip" type="button" title="back to your feed" hidden></button>
     <span id="stats"></span>
     <button id="filters-btn" type="button" aria-controls="filters" aria-expanded="false">filters</button>
     <button id="likes-btn" type="button" aria-controls="likes" aria-expanded="false">likes</button>
     <button id="help-btn" type="button" title="shortcuts (?)" aria-label="help">?</button>
-    <button id="logout-btn" type="button" title="sign out"></button>
+    <button id="account-btn" type="button" aria-controls="account" aria-expanded="false" title="account"></button>
   </header>
 
   <div id="login" hidden>
@@ -52,21 +52,42 @@
         <label for="code">pl8list sent a 6-digit code to <span id="sent-to"></span></label>
         <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
                maxlength="6" required placeholder="123456">
+        <label class="check">
+          <input type="checkbox" id="connect" name="connect">
+          <span>stay connected to pl8list on this device
+            <small>keeps your feed and library in sync, and saves what you like and follow here to
+              your pl8list library. Your pl8list login is stored encrypted with a key only this browser
+              holds. Turn it off any time under your account.</small></span>
+        </label>
         <button type="submit">sign in</button>
         <div class="login-links">
           <button type="button" id="resend" class="link">resend code</button>
           <button type="button" id="restart" class="link">use another email</button>
         </div>
       </form>
+      <button type="button" id="login-cancel" class="link" hidden>cancel, keep using the app</button>
       <p id="login-error" role="alert"></p>
       <p class="fineprint">
         No account? <a href="https://pl8list.com/signup" target="_blank" rel="noopener">sign up on pl8list</a>.
-        This site is not affiliated with pl8list. It never stores your pl8list login.
+        This site is not affiliated with pl8list. Your email and code go to pl8list, which signs this
+        server in for you. Unless you choose to stay connected, we use that pl8list login once to read
+        your feed and library, then log it out; it is never stored. We keep your pl8list handle, the
+        artists you follow and what you play and like, to pick tracks for you.
+      </p>
+      <p class="fineprint legal-links">
+        <a href="/datenschutz">Datenschutz / privacy</a> · <a href="/impressum">Impressum</a>
       </p>
     </div>
   </div>
 
   <form id="filters" class="panel" hidden>
+    <fieldset class="modes">
+      <legend>feed</legend>
+      <label><input type="radio" name="mode" value="classic"> for you</label>
+      <label><input type="radio" name="mode" value="riddim"> riddim</label>
+      <label><input type="radio" name="mode" value="fresh"> fresh</label>
+      <label><input type="radio" name="mode" value="deep"> deep cuts</label>
+    </fieldset>
     <label><input type="checkbox" name="free"> free only</label>
     <label>bpm <input type="number" name="bpm_min" min="40" max="250" placeholder="min"></label>
     <label>– <input type="number" name="bpm_max" min="40" max="250" placeholder="max"></label>
@@ -79,7 +100,31 @@
     <ol id="likes-list"></ol>
   </aside>
 
+  <aside id="account" class="panel" hidden>
+    <h2 id="account-handle"></h2>
+    <section id="sync" aria-labelledby="sync-title">
+      <h3 id="sync-title">pl8list sync</h3>
+      <p id="sync-status"></p>
+      <button type="button" id="sync-btn">resync with pl8list</button>
+      <button type="button" id="disconnect-btn" class="link" hidden>stop staying connected on this device</button>
+    </section>
+    <button type="button" id="logout-btn">sign out</button>
+    <button type="button" id="logout-all-btn" class="link">sign out on all devices</button>
+    <a href="/account/export" download>download my data</a>
+    <button type="button" id="delete-open" class="link danger">delete account…</button>
+    <form id="delete-form" hidden>
+      <label for="delete-confirm">This deletes your likes and listening history here, right away.
+        Your pl8list account is not touched. Type <b id="delete-handle"></b> to confirm.</label>
+      <input id="delete-confirm" name="confirm" autocomplete="off" required>
+      <button type="submit" class="danger">delete my account</button>
+    </form>
+    <p class="fineprint legal-links">
+      <a href="/datenschutz">Datenschutz / privacy</a> · <a href="/impressum">Impressum</a>
+    </p>
+  </aside>
+
   <main id="feed"></main>
+  <p id="feed-status" role="status" hidden></p>
 
   <div id="start" hidden>
     <button type="button">tap anywhere to start</button>
@@ -91,14 +136,16 @@
       <dl class="touch-only">
         <dt>tap</dt><dd>play / pause</dd>
         <dt>double-tap</dt><dd>like</dd>
-        <dt>swipe up</dt><dd>next track</dd>
+        <dt>swipe up / down</dt><dd>next / previous</dd>
         <dt>drag waveform</dt><dd>seek</dd>
       </dl>
       <dl class="pointer-only">
         <dt>click · space</dt><dd>play / pause</dd>
         <dt>double-click · l</dt><dd>like</dd>
-        <dt>↓ j · ↑ k</dt><dd>next / previous</dd>
+        <dt>↓ j · ↑ k · wheel</dt><dd>next / previous</dd>
         <dt>← →</dt><dd>seek 10 s</dd>
+        <dt>f</dt><dd>follow artist</dd>
+        <dt>r</dt><dd>artist radio</dd>
         <dt>x</dt><dd>not for me</dd>
         <dt>s</dt><dd>share</dd>
         <dt>m</dt><dd>mute</dd>
@@ -111,11 +158,10 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <audio id="audio" preload="auto"></audio>
-
   <template id="card-tpl">
     <section class="card">
       <div class="bg"></div>
+      <div class="glow"></div>
       <div class="content">
         <div class="art">
           <span class="initial"></span>
@@ -123,7 +169,11 @@
           <span class="spinner"></span>
         </div>
         <h1 class="title"></h1>
-        <a class="artist" target="_blank" rel="noopener"></a>
+        <div class="byline">
+          <a class="artist" target="_blank" rel="noopener"></a>
+          <button type="button" class="follow" title="follow artist (f)">follow</button>
+          <button type="button" class="radio" title="more like this artist (r)">radio</button>
+        </div>
         <div class="chips"></div>
         <p class="desc"></p>
         <div class="wave-wrap">
@@ -143,6 +193,5 @@
     </section>
   </template>
 
-  <script src="/static/app.js"></script>
 </body>
 </html>

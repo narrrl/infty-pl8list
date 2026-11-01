@@ -48,6 +48,9 @@ CONTENT_TYPES = {
 SESSION_COOKIE = "pl8inf"
 LOGIN_COOKIE = "pl8inf_login"
 LOGIN_TTL = 900
+MAX_PENDING_LOGINS = 500
+MAX_RESENDS = 2
+MAX_CODE_ATTEMPTS = 5
 MAX_BODY = 4096
 CSP = "; ".join([
     "default-src 'self'",
@@ -86,6 +89,9 @@ class RateLimiter:
     def allow(self, key):
         now = time.time()
         with self.lock:
+            if len(self.hits) > 10000:
+                for k in [k for k, q in self.hits.items() if not q or q[-1] < now - self.window]:
+                    del self.hits[k]
             q = self.hits[key]
             while q and q[0] < now - self.window:
                 q.popleft()
@@ -103,14 +109,23 @@ class PendingLogins:
         self.lock = threading.Lock()
 
     def add(self, flow):
+        """Returns the new flow id, or None when too many logins are pending."""
         flow_id = secrets.token_urlsafe(24)
         with self.lock:
             now = time.time()
             for k in [k for k, f in self.flows.items() if f.created < now - LOGIN_TTL]:
                 del self.flows[k]
-            flow.created, flow.attempts = now, 0
+            if len(self.flows) >= MAX_PENDING_LOGINS:
+                return None
+            flow.created, flow.attempts, flow.resends = now, 0, 0
             self.flows[flow_id] = flow
         return flow_id
+
+    def count(self, flow, field, limit):
+        """Increment flow.<field> under the lock. False once it goes over `limit`."""
+        with self.lock:
+            setattr(flow, field, getattr(flow, field) + 1)
+            return getattr(flow, field) <= limit
 
     def get(self, flow_id):
         with self.lock:
@@ -135,6 +150,8 @@ class Handler(BaseHTTPRequestHandler):
     logins = PendingLogins()
     login_ip_limit = RateLimiter(5, 900)
     login_email_limit = RateLimiter(3, 900)
+    # Every start and resend makes pl8list send a mail; cap them for the whole server.
+    login_global_limit = RateLimiter(30, 600)
 
     def log_message(self, fmt, *args):
         log.debug(fmt, *args)
@@ -149,9 +166,15 @@ class Handler(BaseHTTPRequestHandler):
     # Request helpers ------------------------------------------------------
 
     def client_ip(self):
+        # The proxy appends the address it saw, so only the last entry is trustworthy.
+        # Anything before it was sent by the client.
         if self.trust_proxy and self.headers.get("X-Forwarded-For"):
-            return self.headers["X-Forwarded-For"].split(",")[0].strip()
+            return self.headers["X-Forwarded-For"].split(",")[-1].strip()
         return self.client_address[0]
+
+    def allow_login_mail(self, email):
+        return (self.login_ip_limit.allow(self.client_ip()) and self.login_email_limit.allow(email)
+                and self.login_global_limit.allow(""))
 
     def is_https(self):
         return self.trust_proxy and self.headers.get("X-Forwarded-Proto") == "https"
@@ -261,21 +284,26 @@ class Handler(BaseHTTPRequestHandler):
         email = str(data.get("email") or "").strip().lower()
         if len(email) > 254 or not EMAIL_RE.match(email):
             return self.send_json({"error": "enter a valid email"}, 400)
-        if not self.login_ip_limit.allow(self.client_ip()) or not self.login_email_limit.allow(email):
+        if not self.allow_login_mail(email):
             return self.send_json({"error": "too many attempts, wait a few minutes"}, 429)
         flow = LoginFlow(email)
+        flow_id = self.logins.add(flow)
+        if not flow_id:
+            return self.send_json({"error": "too many sign-ins right now, try again in a few minutes"}, 429)
         try:
             flow.start()
         except LoginError as e:
+            self.logins.drop(flow_id)
             return self.send_json({"error": str(e)}, 400)
-        flow_id = self.logins.add(flow)
         self.send_json({"ok": True, "email": email}, cookies=[(LOGIN_COOKIE, flow_id, LOGIN_TTL)])
 
     def auth_resend(self, data):
         flow = self.logins.get(self.cookie(LOGIN_COOKIE))
         if not flow:
             return self.send_json({"error": "login expired, start again"}, 400)
-        if not self.login_ip_limit.allow(self.client_ip()):
+        if not self.logins.count(flow, "resends", MAX_RESENDS):
+            return self.send_json({"error": "no more resends, start again"}, 429)
+        if not self.allow_login_mail(flow.email):
             return self.send_json({"error": "too many attempts, wait a few minutes"}, 429)
         try:
             flow.resend()
@@ -291,8 +319,7 @@ class Handler(BaseHTTPRequestHandler):
         code = str(data.get("code") or "").strip()
         if not re.fullmatch(r"\d{6}", code):
             return self.send_json({"error": "the code has 6 digits"}, 400)
-        flow.attempts += 1
-        if flow.attempts > 5:
+        if not self.logins.count(flow, "attempts", MAX_CODE_ATTEMPTS):
             self.logins.drop(flow_id)
             return self.send_json({"error": "too many wrong codes, start again"}, 429)
         try:

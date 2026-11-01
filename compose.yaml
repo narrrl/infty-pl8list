@@ -9,7 +9,7 @@ services:
       - path: .env
         required: false
     environment:
-      TRUST_PROXY: "0"
+      TRUSTED_PROXY_HOPS: "0"
     ports:
       - "127.0.0.1:8790:8790"
     volumes:

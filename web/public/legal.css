@@ -1,0 +1,15 @@
+/* Impressum and privacy pages. Plain CSS outside the app bundle, so the server's
+   templates can link it by a fixed name. */
+:root { color-scheme: dark; --fg: #f2f2f2; --muted: #9a9a9a; --accent: #ff4d6d; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #050507;
+  color: var(--fg);
+  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 42rem; margin: 0 auto; padding: 2rem 1.2rem 4rem; }
+h1 { font-size: 1.8rem; }
+h2 { font-size: 1.1rem; margin-top: 2rem; }
+a { color: var(--accent); }
+code { font-size: 0.9em; }
