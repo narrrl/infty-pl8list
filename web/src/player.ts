@@ -148,8 +148,8 @@ export class Player {
       return;
     }
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.7;
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.2; // features.ts smooths per feature; this only takes the edge off the FFT
     analyser.connect(ctx.destination);
     for (const d of this.decks) {
       const gain = ctx.createGain();

@@ -5,7 +5,7 @@ import type { Filters, Mode, Pl8Status, Stats, Track, User } from "./api";
 import { Card, type CardActions, cleanTitle } from "./cards";
 import { Pager } from "./pager";
 import { Player } from "./player";
-import { Visualizer } from "./visual";
+import { type VisualsSetting, Visualizer } from "./visual";
 
 const PREFETCH_AHEAD = 4; // fetch more when this close to the end
 const SKIP_SECONDS = 8; // leaving earlier than this counts as a skip
@@ -36,7 +36,7 @@ const loginEl = $("login");
 const isTouch = !matchMedia("(hover: hover) and (pointer: fine)").matches;
 
 const player = new Player();
-const visual = new Visualizer(player);
+const visual = new Visualizer(player, isTouch);
 const cards: Card[] = [];
 let active = -1;
 let loading = false;
@@ -524,12 +524,25 @@ modeChip.addEventListener("click", () => setMode({ mode: "classic" }));
 filtersForm.addEventListener("change", (e) => {
   const input = e.target as HTMLInputElement;
   if (input.name === "mode") setMode({ mode: input.value as "classic" | "riddim" | "fresh" | "deep" });
+  if (input.name === "visuals") setVisuals(input.value as VisualsSetting);
 });
+
+function setVisuals(v: VisualsSetting): void {
+  visual.visuals = v;
+  for (const input of filtersForm.querySelectorAll<HTMLInputElement>("input[name=visuals]")) input.checked = input.value === v;
+}
+setVisuals(visual.visuals);
 showMode();
 
 filtersBtn.addEventListener("click", () => togglePanel(filtersForm));
 filtersForm.addEventListener("submit", (e) => { e.preventDefault(); applyFilters(); });
-$("filters-clear").addEventListener("click", () => { filtersForm.reset(); applyFilters(); });
+$("filters-clear").addEventListener("click", () => {
+  filtersForm.reset();
+  // reset() also clears the mode and visuals radios, which "clear" leaves alone.
+  showMode();
+  setVisuals(visual.visuals);
+  applyFilters();
+});
 showFilters();
 
 // Keyboard --------------------------------------------------------------
@@ -559,6 +572,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "r" && card) actions.radio(card);
   else if (k === "x" && card) dislike(card);
   else if (k === "s" && card) share(card);
+  else if (k === "v") { setVisuals(visual.visuals === "liquid" ? "simple" : "liquid"); toast(`${visual.visuals} visuals`); }
   else if (k === "m") { player.muted = !player.muted; toast(player.muted ? "muted" : "sound on"); }
   else if (k === "?") { helpEl.hidden ? showHelp() : hideHelp(); }
 });

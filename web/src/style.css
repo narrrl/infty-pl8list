@@ -226,7 +226,8 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   position: relative;
   width: min(16rem, 42vh, 70vw);
   aspect-ratio: 1;
-  border-radius: 14px;
+  /* Round, so the static artwork matches the liquid drop (blob/) it turns into. */
+  border-radius: 50%;
   background: #222 center / cover no-repeat;
   box-shadow:
     0 20px 60px #000a,
@@ -239,6 +240,28 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   transition: transform 0.25s var(--ease-out), filter 0.25s ease;
 }
 .initial { font-size: 4rem; font-weight: 700; color: #fff6; }
+
+/* The liquid drop spills past the art slot; taps go through it to the card. */
+.liquid-canvas {
+  position: absolute;
+  inset: -25%;
+  width: 150%;
+  height: 150%;
+  pointer-events: none;
+}
+.card.liquid .art { background-image: none !important; background-color: transparent; box-shadow: none; scale: 1; }
+.card.liquid .initial { display: none; }
+.paused-badge, .spinner { z-index: 1; }
+
+.audio-debug {
+  position: fixed;
+  left: 0.7rem;
+  bottom: 0.7rem;
+  z-index: 30;
+  border-radius: var(--radius-s);
+  background: #000b;
+  pointer-events: none;
+}
 
 .card.paused .art { transform: scale(0.96); filter: brightness(0.7); }
 .paused-badge {
