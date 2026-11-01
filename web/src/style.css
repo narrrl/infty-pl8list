@@ -35,17 +35,6 @@ html, body {
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
 }
-/* Film grain over everything, from a tile main.ts paints: a printed flyer. Static
-   and without a blend mode, so it costs nothing per frame. */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  pointer-events: none;
-  background: var(--grain, none);
-}
-
 a { color: inherit; }
 
 button, input {

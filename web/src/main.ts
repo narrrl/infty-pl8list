@@ -57,8 +57,6 @@ const sheets = {
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((err) => console.warn("no service worker:", err));
 }
-paintGrain();
-
 const cards: Card[] = [];
 let active = -1;
 let loading = false;
@@ -1172,24 +1170,6 @@ function signedIn(user: User, pl8list?: Pl8Status): void {
   if (navigator.userActivation?.hasBeenActive) start();
   else if (!started) startEl.hidden = false;
   if (!cards.length) openLinkOrFeed();
-}
-
-/// The tile of film grain the stylesheet lays over everything: faint specks, each
-/// a little lighter or darker than what is under it.
-function paintGrain(): void {
-  const size = 128;
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  const ctx = c.getContext("2d");
-  if (!ctx) return;
-  const img = ctx.createImageData(size, size);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = Math.random() < 0.5 ? 0 : 255;
-    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
-    img.data[i + 3] = Math.random() * 26;
-  }
-  ctx.putImageData(img, 0, 0);
-  document.documentElement.style.setProperty("--grain", `url(${c.toDataURL()})`);
 }
 
 /// `/?t=handle/slug` opens on that track; the feed carries on after it.
