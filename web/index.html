@@ -31,7 +31,9 @@
 
   <header id="bar" hidden>
     <span class="logo">pl8list <b>∞</b></span>
-    <button id="mode-chip" type="button" title="back to your feed" hidden></button>
+    <button id="mode-chip" type="button" title="back to your feed" hidden>
+      <span class="chip-avatar" aria-hidden="true"></span><span class="chip-label"></span><span aria-hidden="true">×</span>
+    </button>
     <span id="stats"></span>
     <button id="filters-btn" type="button" aria-controls="filters" aria-expanded="false">filters</button>
     <button id="likes-btn" type="button" aria-controls="likes" aria-expanded="false">likes</button>
@@ -135,6 +137,33 @@
     <button type="button">tap anywhere to start</button>
   </div>
 
+  <!-- Artist radio: who the radio is built around, and who is next to them. -->
+  <div id="station" hidden>
+    <section class="station-box" role="dialog" aria-modal="true" aria-labelledby="station-name">
+      <button type="button" id="station-back" class="link" hidden></button>
+      <button type="button" id="station-close" class="icon-btn" aria-label="close"><svg><use href="#i-x"/></svg></button>
+      <div class="station-head">
+        <div class="station-avatar"><span class="initial"></span></div>
+        <div>
+          <p class="station-kicker">artist radio</p>
+          <h2 id="station-name"></h2>
+          <p id="station-sub"></p>
+          <div id="station-tags" class="chips"></div>
+        </div>
+      </div>
+      <h3>around them</h3>
+      <ol id="station-neighbours"></ol>
+      <p id="station-exploring" hidden>finding related artists…</p>
+      <button type="button" id="station-start" class="primary"><svg><use href="#i-play"/></svg> start radio</button>
+    </section>
+  </div>
+
+  <div id="radio-end" hidden>
+    <p></p>
+    <button type="button" id="radio-end-feed">back to your feed</button>
+    <button type="button" id="radio-end-next" class="primary"></button>
+  </div>
+
   <div id="help" hidden>
     <div class="help-box">
       <h2>controls</h2>
@@ -158,6 +187,9 @@
         <dt>?</dt><dd>this help</dd>
       </dl>
       <p>Lock-screen and headphone buttons work too.</p>
+      <p class="pointer-only fineprint">Keys like r or x doing something else, such as reloading or
+        closing the tab? A vim-keys browser extension (Vimium and the like) takes them first:
+        turn it off for this site.</p>
       <button type="button" id="help-close">got it</button>
     </div>
   </div>
@@ -174,6 +206,7 @@
           <span class="paused-badge"><svg><use href="#i-play"/></svg></span>
           <span class="spinner"></span>
         </div>
+        <p class="why"></p>
         <h1 class="title"></h1>
         <div class="byline">
           <a class="artist" target="_blank" rel="noopener"></a>

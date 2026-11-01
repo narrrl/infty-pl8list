@@ -1,6 +1,6 @@
 //! End-to-end tests of the HTTP API against a fake pl8list.
 
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -416,4 +416,50 @@ async fn feed_modes_filter_and_tag_tracks() {
     }
     let res = get("/local/feed?mode=artist&artist=h").await.unwrap();
     assert_eq!(json_body(res).await["tracks"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn artist_sheet_and_radio_reasons() {
+    let (r, app, _) = setup("radio", "http://127.0.0.1:9").await;
+    let token = app
+        .db
+        .call(|c| {
+            let t = |id, handle: &str, title: &str| crate::db::Track {
+                id,
+                handle: handle.into(),
+                artist_name: handle.to_uppercase(),
+                slug: format!("s{id}"),
+                title: title.into(),
+                bpm: Some(140.0),
+                full_access: true,
+                ..Default::default()
+            };
+            crate::db::upsert_tracks(c, &[t(1, "a", "Riddim one"), t(2, "b", "Two"), t(3, "c", "Three")], None)?;
+            crate::db::add_related(c, 1, &["b".into()])?;
+            crate::db::add_related(c, 2, &["c".into()])?;
+            crate::db::upsert_user(c, 5, "tester", None, None)?;
+            crate::db::create_session(c, 5)
+        })
+        .await
+        .unwrap();
+    let cookie = format!("__Host-pl8inf={token}");
+    let get = |uri: &str| r.clone().oneshot(req("GET", uri, None, Some(&cookie), "203.0.113.1"));
+
+    let res = get("/local/artist?handle=a").await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = json_body(res).await;
+    assert_eq!(body["artist"]["name"], "A");
+    assert_eq!(body["tags"], serde_json::json!(["riddim"]));
+    assert_eq!(body["neighbours"][0]["handle"], "b");
+    assert_eq!(body["exploring"], true);
+    assert_eq!(get("/local/artist?handle=..").await.unwrap().status(), StatusCode::BAD_REQUEST);
+    assert_eq!(get("/local/artist?handle=nobody").await.unwrap().status(), StatusCode::NOT_FOUND);
+
+    let res = get("/local/feed?mode=artist&artist=a").await.unwrap();
+    let body = json_body(res).await;
+    let why: HashMap<i64, serde_json::Value> =
+        body["tracks"].as_array().unwrap().iter().map(|t| (t["id"].as_i64().unwrap(), t["why"].clone())).collect();
+    assert_eq!(why[&1], serde_json::json!({ "kind": "seed" }));
+    assert_eq!(why[&2], serde_json::json!({ "kind": "related" }));
+    assert_eq!(why[&3], serde_json::json!({ "kind": "via", "handle": "b", "name": "B" }));
 }

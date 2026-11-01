@@ -144,6 +144,47 @@ pub async fn event(State(app): St, Extension(current): Extension<CurrentUser>, J
     Ok((no_store(), Json(json!({ "ok": true }))).into_response())
 }
 
+/// How many neighbours the radio sheet shows, and how few count as still exploring.
+const SHEET_NEIGHBOURS: usize = 12;
+const FEW_NEIGHBOURS: usize = 3;
+
+/// An artist and the ones next to them in the artist graph, for the radio sheet.
+/// Starts crawling the neighbourhood when it is new, so the sheet can poll while
+/// `exploring` is true.
+pub async fn artist(State(app): St, Extension(current): Extension<CurrentUser>, Query(q): Query<HashMap<String, String>>) -> Res {
+    let uid = match current.require() {
+        Ok(u) => u.id,
+        Err(r) => return Ok(r),
+    };
+    let Some(handle) = q.get("handle").filter(|h| valid_handle(h)).cloned() else {
+        return Ok(StatusCode::BAD_REQUEST.into_response());
+    };
+    app.crawler.explore_artist(handle.clone()).await;
+    let body = app
+        .db
+        .call(move |c| {
+            let Some(artist) = db::artist(c, &handle)? else { return Ok(None) };
+            let mut neighbours = vec![];
+            for (h, weight) in ranker::scaled_neighbours(c, &handle)?.into_iter().take(SHEET_NEIGHBOURS) {
+                if let Some(a) = db::artist(c, &h)? {
+                    neighbours.push(json!({ "handle": a.handle, "name": a.name, "img": a.img, "weight": weight }));
+                }
+            }
+            Ok(Some(json!({
+                "followed": db::follows(c, uid)?.contains(&handle),
+                "tags": db::artist_tags(c, &handle, 4)?,
+                "exploring": neighbours.len() < FEW_NEIGHBOURS,
+                "artist": artist,
+                "neighbours": neighbours,
+            })))
+        })
+        .await?;
+    Ok(match body {
+        Some(b) => (no_store(), Json(b)).into_response(),
+        None => json_error(StatusCode::NOT_FOUND, "unknown artist"),
+    })
+}
+
 /// Valid pl8list handles, as seen in every handle crawled so far.
 fn valid_handle(h: &str) -> bool {
     (1..=64).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) && h != "." && h != ".."

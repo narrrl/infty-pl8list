@@ -14,7 +14,7 @@
 
 use std::{
     cmp::Reverse,
-    collections::{BinaryHeap, HashSet},
+    collections::{BinaryHeap, HashMap, HashSet},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -50,6 +50,8 @@ const IDLE_DELAY: Duration = Duration::from_secs(20); // extra wait between requ
 const MIN_POOL: i64 = 500; // crawl at full pace until the catalogue has this many tracks
 const REFRESH_AFTER: f64 = 86400.0; // re-check an artist's newest page for uploads this often
 const RESEED_EVERY: Duration = Duration::from_secs(600);
+/// An artist radio crawls its artist's neighbourhood at most this often.
+const EXPLORE_EVERY: Duration = Duration::from_secs(600);
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum Job {
@@ -73,6 +75,7 @@ pub struct Crawler {
     db: Db,
     queue: Mutex<Queue>,
     wake: Notify,
+    explored: Mutex<HashMap<String, Instant>>,
 }
 
 fn s(v: &Value, k: &str) -> Option<String> {
@@ -86,6 +89,7 @@ impl Crawler {
             db,
             queue: Mutex::new(Queue { heap: BinaryHeap::new(), queued: HashSet::new(), seq: 0 }),
             wake: Notify::new(),
+            explored: Mutex::new(HashMap::new()),
         })
     }
 
@@ -150,6 +154,14 @@ impl Crawler {
     /// An artist radio was opened: crawl the artist, and the related pages of their
     /// best tracks that were not read yet, to fill in the artist graph around them.
     pub async fn explore_artist(&self, handle: String) {
+        {
+            let mut explored = self.explored.lock().unwrap_or_else(|e| e.into_inner());
+            let now = Instant::now();
+            explored.retain(|_, at| now.duration_since(*at) < EXPLORE_EVERY);
+            if explored.insert(handle.clone(), now).is_some() {
+                return;
+            }
+        }
         self.push(P_FEEDBACK, Job::Artist(handle.clone()));
         let h = handle.clone();
         let tracks = self

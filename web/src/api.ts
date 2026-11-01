@@ -24,6 +24,30 @@ export interface Track {
   followed?: boolean;
   /// From titles, descriptions and BPM, see backend/src/tags.rs.
   tags?: string[];
+  /// In an artist radio: why this track is in it.
+  why?: Why;
+}
+
+/// `seed`: by the radio's artist; `related`: by an artist next to them;
+/// `via`: one step further, through the artist `handle`.
+export type Why = { kind: "seed" } | { kind: "related" } | { kind: "via"; handle: string; name: string };
+
+export interface Artist {
+  handle: string;
+  name: string;
+  img: string | null;
+  verified: boolean;
+  tracks: number;
+}
+
+/// An artist and their neighbours in the artist graph, for the radio sheet.
+export interface ArtistInfo {
+  artist: Artist;
+  neighbours: { handle: string; name: string; img: string | null; weight: number }[];
+  tags: string[];
+  followed: boolean;
+  /// Still crawling for neighbours; ask again in a moment.
+  exploring: boolean;
 }
 
 export interface Stats {
@@ -55,7 +79,7 @@ export type Filters = Partial<Record<"free" | "bpm_min" | "bpm_max", string>>;
 /// that artist and the ones pl8list relates to them.
 export type Mode =
   | { mode: "classic" | "riddim" | "fresh" | "deep" }
-  | { mode: "artist"; artist: string; name: string };
+  | { mode: "artist"; artist: string; name: string; img?: string | null };
 
 export type EventKind = "play" | "like" | "unlike" | "skip" | "complete" | "dislike";
 
@@ -99,6 +123,8 @@ export function feed(filters: Filters, mode: Mode) {
   return getJSON<{ tracks: Track[]; stats: Stats }>("/local/feed?" + p);
 }
 
+export const artist = (handle: string) => getJSON<ArtistInfo>("/local/artist?" + new URLSearchParams({ handle }));
+
 export const likes = () => getJSON<{ tracks: Track[] }>("/local/likes");
 
 export const me = () => getJSON<Me>("/local/me");
@@ -107,7 +133,8 @@ export const PL8 = "https://pl8list.com";
 export const trackUrl = (t: Track) => `${PL8}/${t.handle}/${t.slug}`;
 export const artistUrl = (t: Track) => `${PL8}/${t.handle}`;
 // Images come through our server, so pl8list never sees the visitor's address.
-export const artistImg = (t: Track) => (t.artist_img ? `/img/${encodeURIComponent(t.artist_img)}` : null);
+export const imgUrl = (id: string | null) => (id ? `/img/${encodeURIComponent(id)}` : null);
+export const artistImg = (t: Track) => imgUrl(t.artist_img);
 
 export function streamUrl(t: Track): string {
   const p = new URLSearchParams();

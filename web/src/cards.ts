@@ -31,13 +31,17 @@ export class Card {
   private dragging = false;
   private accent: string | null = null;
 
+  /// `station`: the artist radio this card was picked for, if any.
   constructor(
     readonly track: Track,
     private actions: CardActions,
-    { liked = false } = {},
+    { liked = false, station = undefined as string | undefined } = {},
   ) {
     this.liked = liked;
+    this.station = station;
   }
+
+  private station: string | undefined;
 
   element(): HTMLElement {
     return this.el ?? this.build();
@@ -70,6 +74,7 @@ export class Card {
       $(".initial").textContent = (t.artist_name || "?")[0].toUpperCase();
     }
 
+    $(".why").textContent = this.whyText();
     $(".title").textContent = cleanTitle(t.title);
     const artist = $<HTMLAnchorElement>(".artist");
     artist.textContent = t.artist_name + (t.artist_verified ? " ✓" : "");
@@ -110,6 +115,17 @@ export class Card {
     this.showFollow();
     requestAnimationFrame(() => this.drawWave(this.lastProgress, true));
     return el;
+  }
+
+  /// Where a radio track comes from, e.g. "Lower radio · via Motus".
+  private whyText(): string {
+    const { station } = this;
+    const why = this.track.why;
+    if (!station) return "";
+    if (!why) return `${station} radio`;
+    if (why.kind === "seed") return `${station} radio`;
+    if (why.kind === "related") return `${station} radio · related artist`;
+    return `${station} radio · via ${why.name}`;
   }
 
   showLike(pop = false): void {

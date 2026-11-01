@@ -121,6 +121,7 @@ visitor address reaches pl8list or a CDN.
 | drag waveform    | drag waveform · ← →  | seek                           |
 | follow button    | f                    | follow the artist              |
 | radio button     | r                    | artist radio (more like them)  |
+|                  | v                    | liquid / simple visuals        |
 | ✕ button         | x                    | not for me (skip, show less)   |
 | share button     | s                    | share / copy link              |
 |                  | m                    | mute                           |
@@ -128,9 +129,14 @@ visitor address reaches pl8list or a CDN.
 
 Lock-screen, notification and headphone buttons control playback too (Media Session API).
 "likes" lists your likes newest first; ▶ plays one right away. The filters panel picks the
-feed (for you, riddim, fresh, deep cuts); "radio" on a card starts an artist radio, and the chip
-in the top bar goes back to your feed. Feed and filters (free only, BPM range) are remembered
-per browser. The site can be installed to the home screen as an app.
+feed (for you, riddim, fresh, deep cuts) and the visuals. "radio" on a card opens the radio
+sheet: the artist, their tags and the artists next to them (tap one to walk over to theirs).
+"start radio" jumps to the radio's first track; each radio track says why it is there, and the
+chip in the top bar goes back to your feed. Feed and filters (free only, BPM range) are
+remembered per browser. The site can be installed to the home screen as an app.
+
+Single-letter keys clash with vim-key browser extensions (Vimium and the like), which take
+`r`, `x` and `f` before the page sees them; turn those off for the site.
 
 ## Front end
 
@@ -145,8 +151,18 @@ per browser. The site can be installed to the home screen as an app.
   starts just before the current one ends. Both decks run through a Web Audio graph with an
   analyser. Not on iOS: its element volume is read-only and Web Audio stops with the screen
   locked, so there tracks switch with a cut and lock-screen playback keeps working.
-- `visual.ts`: per frame, the waveform progress and a bass level (`--energy`) that pulses the
-  artwork and its glow. Without the analyser the level comes from the track's waveform.
+- `features.ts`: what the music does, per frame: band levels against their recent range,
+  kick and snare onsets (spectral flux over an adaptive threshold), wobble in the mids, and
+  drops. A plain bass meter sits at full scale through a whole dubstep drop; these keep
+  moving. Without the analyser only loudness from the track's waveform is left.
+  `?debug=audio` shows them live, with onset counts.
+- `blob/`: the liquid artwork. One WebGL2 canvas moves into the playing card: an icosphere
+  displaced by noise driven by those features (lobes, ripples, snare spikes, a ring after each
+  kick), showing the artwork through its surface. Tempo, tags and key set its character
+  (`blob/style.ts`). It steps its quality down on slow devices and falls back to the plain
+  artwork without WebGL2, with reduced motion, or with visuals set to simple.
+- `visual.ts`: runs both per frame, plus `--energy` (kick-driven) for the CSS glow.
+- `station.ts`: the radio sheet.
 - `color.ts`: each card's accent colour (`--card-accent`) from the artist image.
 - `cards.ts`, `api.ts`, `main.ts`: cards, server calls, and everything else.
 
@@ -196,6 +212,11 @@ row. Weights live in a `Ranker`, which can also narrow the candidates and add a 
 | `fresh`                    | uploads of the last 45 days, newest weighted up                                |
 | `deep`                     | tracks with 15 saves or fewer; popularity counts against a track               |
 | `artist&artist=<handle>`   | artist radio: the artist and their neighbours in the artist graph (two hops)   |
+
+In an artist radio each track carries `why`: `seed`, `related` (a neighbour), or `via` with the
+neighbour that leads to a second-hop artist. `/local/artist?handle=` returns an artist, their
+top tags and closest neighbours for the radio sheet, and starts crawling the neighbourhood
+(at most every 10 minutes per artist); `exploring` is true while there are fewer than three.
 
 **Tags** (`backend/src/tags.rs`). pl8list has no genre field, so tags come from words in the
 title, description and artist name, and from the BPM: styles (`riddim`, `tearout`, `wonk`, `dnb`,

@@ -5,6 +5,7 @@ import type { Filters, Mode, Pl8Status, Stats, Track, User } from "./api";
 import { Card, type CardActions, cleanTitle } from "./cards";
 import { Pager } from "./pager";
 import { Player } from "./player";
+import { Station } from "./station";
 import { type VisualsSetting, Visualizer } from "./visual";
 
 const PREFETCH_AHEAD = 4; // fetch more when this close to the end
@@ -34,6 +35,7 @@ const toastEl = $("toast");
 const loginEl = $("login");
 
 const isTouch = !matchMedia("(hover: hover) and (pointer: fine)").matches;
+const radioEnd = $("radio-end");
 
 const player = new Player();
 const visual = new Visualizer(player, isTouch);
@@ -50,6 +52,8 @@ let preloadTimer = 0;
 let filters: Filters = loadFilters();
 let mode: Mode = loadMode();
 let stats: Stats | null = null;
+let jumpOnLoad = false; // a radio just started: go to its first track as soon as it is here
+let radioDry = false; // the artist radio found nothing more; say so on its last card
 
 const current = () => cards[active] as Card | undefined;
 
@@ -77,18 +81,25 @@ async function loadMore(): Promise<void> {
     if (gen !== feedGen) return;
     showStats(data.stats);
     if (!data.tracks.length) {
-      setStatus(mode.mode === "artist"
-        ? `nothing more around ${mode.name} yet. the crawler is looking up who they're related to, try again in a bit.`
-        : mode.mode !== "classic" || Object.keys(filters).length
+      jumpOnLoad = false;
+      if (mode.mode === "artist") {
+        radioDry = true;
+        updateRadioEnd();
+      } else setStatus(mode.mode !== "classic" || Object.keys(filters).length
         ? "nothing new matches this feed and your filters right now. loosen them, or check back in a bit."
         : "nothing new right now, the crawler is still digging. try again in a bit.");
       setTimeout(() => { if (gen === feedGen) loading = false; }, 8000);
       return;
     }
     setStatus("");
-    cards.push(...data.tracks.map((t) => new Card(t, actions)));
+    radioDry = false;
+    updateRadioEnd();
+    const station = mode.mode === "artist" ? mode.name : undefined;
+    cards.push(...data.tracks.map((t) => new Card(t, actions, { station })));
     pager.refresh();
     if (active < 0) activate(0);
+    else if (jumpOnLoad) go(active + 1);
+    jumpOnLoad = false;
   } catch (err) {
     if (gen !== feedGen) return;
     if (err instanceof api.HttpError && err.status === 401) {
@@ -147,6 +158,7 @@ function activate(idx: number): void {
     if (next && started) player.preload(next.track);
   }, PRELOAD_AFTER_MS);
   if (idx >= cards.length - PREFETCH_AHEAD) loadMore();
+  updateRadioEnd();
   cards.forEach((c, i) => { if (c.el && Math.abs(i - idx) > KEEP_BUILT) c.release(); });
 }
 
@@ -172,7 +184,7 @@ const actions: CardActions = {
   share: (c) => share(c),
   next: (c) => go(cards.indexOf(c) + 1),
   follow: (c) => setFollow(c, !c.track.followed),
-  radio: (c) => setMode({ mode: "artist", artist: c.track.handle, name: c.track.artist_name }),
+  radio: (c) => station.open(c.track.handle, c.track.artist_name, api.artistImg(c.track)),
   canSeek: (c) => c === current() && !!player.audio.duration,
   duration: (c) => (c === current() && player.audio.duration) || c.track.duration || 0,
   seek: (_, s) => player.seek(s),
@@ -504,13 +516,21 @@ function loadMode(): Mode {
 
 const modeName = (m: Mode) => (m.mode === "artist" ? `${m.name} radio` : MODE_NAMES[m.mode]);
 
+const MODE_ICONS = { riddim: "◆", fresh: "✦", deep: "◎" };
+
 function showMode(): void {
   modeChip.hidden = mode.mode === "classic";
-  modeChip.textContent = `${modeName(mode)} ×`;
+  modeChip.querySelector(".chip-label")!.textContent = modeName(mode);
+  const avatar = modeChip.querySelector<HTMLElement>(".chip-avatar")!;
+  const img = mode.mode === "artist" ? mode.img : null;
+  avatar.style.backgroundImage = img ? `url("${img}")` : "";
+  avatar.textContent = img ? "" : mode.mode === "artist" ? mode.name[0]?.toUpperCase() ?? "" : mode.mode === "classic" ? "" : MODE_ICONS[mode.mode];
   for (const input of filtersForm.querySelectorAll<HTMLInputElement>("input[name=mode]")) input.checked = input.value === mode.mode;
 }
 
 function setMode(m: Mode): void {
+  radioDry = false;
+  updateRadioEnd();
   if (JSON.stringify(m) === JSON.stringify(mode)) return;
   mode = m;
   localStorage.setItem(MODE_KEY, JSON.stringify(mode));
@@ -521,6 +541,31 @@ function setMode(m: Mode): void {
 }
 
 modeChip.addEventListener("click", () => setMode({ mode: "classic" }));
+
+const station = new Station((m) => {
+  if (!started) start();
+  jumpOnLoad = true;
+  setMode(m);
+});
+
+/// On the last card of a radio that has played everything known around its artist.
+function updateRadioEnd(): void {
+  const m = mode;
+  radioEnd.hidden = !(radioDry && m.mode === "artist" && active >= cards.length - 1);
+  if (radioEnd.hidden || m.mode !== "artist") return;
+  const text = radioEnd.querySelector("p")!;
+  const next = $("radio-end-next");
+  text.textContent = `that's all around ${m.name} for now. the crawler keeps looking.`;
+  // Hand over to the artist playing now, if the radio wandered away from its seed.
+  const card = current();
+  const other = card && card.track.handle !== m.artist ? card.track : null;
+  next.hidden = !other;
+  if (other) {
+    next.textContent = `${other.artist_name} radio`;
+    next.onclick = () => station.open(other.handle, other.artist_name, api.artistImg(other));
+  }
+}
+$("radio-end-feed").addEventListener("click", () => setMode({ mode: "classic" }));
 filtersForm.addEventListener("change", (e) => {
   const input = e.target as HTMLInputElement;
   if (input.name === "mode") setMode({ mode: input.value as "classic" | "riddim" | "fresh" | "deep" });
@@ -553,8 +598,10 @@ document.addEventListener("keydown", (e) => {
   if (k === "Escape") {
     closePanels();
     hideHelp();
+    station.close();
     return;
   }
+  if (station.isOpen) return;
   if (!loginEl.hidden) return;
   if (!started) {
     if (k !== "Tab" && k !== "Shift") { e.preventDefault(); start(); }
