@@ -108,7 +108,7 @@ uniform float uDist;    // camera distance
 uniform float uTime;    // flow time, runs with the tempo
 uniform float uMorph;   // 0 flat disc (the static artwork), 1 liquid
 // Music, see features.ts.
-uniform float uLevel, uWobble, uKickAge, uSnare, uDrop, uBass, uGrowl;
+uniform float uLevel, uWobble, uKick, uKickAge, uSnare, uDrop, uBass, uGrowl;
 // Character of the track, see style.ts.
 uniform float uGain, uSpike, uStep, uTwist, uRipple, uShock;
 // The jump on prominent hits, from the springs in blob.ts.
@@ -144,6 +144,10 @@ float disp(vec3 p) {
   float ripples = snoise(q * 3.2 + vec3(t * 1.3, -t, 0.0)) * (0.012 + 0.035 * uWobble + 0.045 * uGrowl * uBass) * uRipple;
   float n = snoise(q * 2.4 - vec3(0.0, t * 0.6, t * 0.9));
   float spikes = pow(max(n, 0.0), 3.0) * (0.05 + 0.25 * uSnare + 0.15 * uGrowl * uBass + 0.1 * uDrop) * uSpike;
+  // Thorns: the crests of a finer noise, sharpened into points that shoot out on
+  // snares, kicks and drops. 1 - |n| is never negative, so pow() is safe.
+  float crest = 1.0 - abs(snoise(q * 4.5 + vec3(t * 0.8, t * 0.5, -t * 0.4)));
+  float thorns = pow(crest, 6.0) * (0.02 + 0.2 * uSnare + 0.08 * uKick + 0.12 * uDrop + 0.1 * uGrowl * uBass) * uSpike;
   // After each kick a wave runs from the front of the drop round to the back.
   // Squares are written out: pow() of a negative base is undefined in GLSL, and
   // Mesa really returns NaN for it, which flattened the whole drop on Linux.
@@ -153,7 +157,7 @@ float disp(vec3 p) {
   float near = distance(p, uPointer.xyz) * 2.2;
   float dent = -0.18 * uPointer.w * exp(-near * near);
   // Calmer while the icon shows, so it stays readable.
-  return clamp((lobes + sway + ripples + spikes + wave) * uGain + dent, -0.3, 0.4) * (1.0 - 0.6 * uCalm);
+  return clamp((lobes + sway + ripples + spikes + thorns + wave) * uGain + dent, -0.3, 0.5) * (1.0 - 0.6 * uCalm);
 }
 
 void main() {
@@ -188,7 +192,7 @@ in vec3 vObj;
 
 uniform sampler2D uArt;
 uniform vec3 uAccent;
-uniform float uTime, uMorph, uKick, uDrop, uBass, uGrowl;
+uniform float uTime, uMorph, uKick, uSnare, uDrop, uBass, uGrowl;
 uniform float uHue;    // rim hue offset, radians
 uniform float uIri;    // how much the rim hue drifts
 uniform float uMetal;  // sharper, brighter highlights
@@ -216,7 +220,7 @@ void main() {
   // Looking through the surface bends the artwork like water does.
   vec2 bend = n.xy * (0.22 + 0.1 * uDrop) * uMorph;
   vec2 uv = 0.5 + vec2(vObj.x, -vObj.y) * 0.48 - vec2(bend.x, -bend.y) * 0.5;
-  vec2 split = n.xy * (0.004 + 0.02 * uKick + 0.008 * uGrowl * uBass) * uMorph;
+  vec2 split = n.xy * (0.008 + 0.025 * uKick + 0.015 * uSnare + 0.01 * uGrowl * uBass) * uMorph;
   // Turned sideways the projection smears; blur it into flowing colour instead.
   float blur = 4.0 * pow(1.0 - abs(vObj.z), 3.0) * uMorph;
   vec3 art = vec3(texture(uArt, uv + split, blur).r, texture(uArt, uv, blur).g, texture(uArt, uv - split, blur).b);
@@ -228,9 +232,19 @@ void main() {
   // card's colours.
   vec3 rim = hueRotate(uAccent, uHue + uIri * (fres + 0.5 * sin(uTime * 0.3)));
   rim = mix(rim, vec3(1.0, 0.35, 0.1), uHeat * 0.6);
+  // Oil-slick fringes: each channel cycles at its own phase across the edge, worn
+  // over the accent, more for iridescent tracks.
+  vec3 slick = 0.5 + 0.5 * cos(6.2831853 * (fres * 1.6 + vec3(0.0, 0.33, 0.67) + uTime * 0.05));
+  rim = mix(rim, rim * 0.4 + slick * length(rim) * 0.75, 0.25 + 0.5 * uIri);
+  // The fresnel per channel, red reaching in further than blue: a lens fringe.
+  float nv = 1.0 - max(dot(n, v), 0.0);
+  vec3 fresC = vec3(nv * nv * nv * mix(1.0, nv, -0.35), fres, nv * nv * nv * mix(1.0, nv, 0.35));
+  // A thin, hot edge that flares on hits.
+  float edge = fres * fres;
 
   vec3 col = art * mix(1.0, 0.45, fres * uMorph);
-  col += rim * fres * (0.5 + 0.7 * uKick + 0.4 * uDrop + 0.5 * uBass) * uMorph;
+  col += rim * fresC * (0.65 + 0.9 * uKick + 0.5 * uDrop + 0.5 * uBass) * uMorph;
+  col += mix(rim, vec3(1.0), 0.5) * edge * (0.3 + 1.2 * uKick + 0.8 * uDrop) * uMorph;
   col += spec * uMorph;
   // Gloss: a dark room lit by the accent from above, and one soft window. They stay
   // put while the surface turns under them, which is what makes a spin read.

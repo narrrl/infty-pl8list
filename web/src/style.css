@@ -29,7 +29,9 @@
 html, body {
   margin: 0;
   height: 100%;
-  background: var(--bg);
+  /* Film grain (main.ts paints the tile) under everything; cards lay their own
+     over their background, below their content. */
+  background: var(--grain, none), var(--bg);
   color: var(--fg);
   font: 15px/1.4 var(--font);
   overflow: hidden;
@@ -403,6 +405,15 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   background: radial-gradient(55% 40% at 50% 40%, color-mix(in oklab, var(--card-accent) 55%, transparent), transparent 70%);
   opacity: calc(0.18 + var(--energy) * 0.55);
 }
+/* Grain over the card's background only: content and actions sit above it. */
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--grain, none);
+}
+.card > .content, .card > .actions { z-index: 1; }
 
 .content {
   position: relative;
@@ -456,8 +467,8 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 .card.liquid .art::before {
   content: "";
   position: absolute;
-  inset: -40%;
-  background: radial-gradient(closest-side, color-mix(in oklab, var(--card-accent) calc(20% + var(--energy) * 40%), transparent), transparent);
+  inset: calc(-50% - var(--energy) * 15%);
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--card-accent) calc(28% + var(--energy) * 55%), transparent), transparent);
   pointer-events: none;
 }
 .card.liquid .content > :not(.art, .chrome-layer) { position: relative; z-index: 1; }
