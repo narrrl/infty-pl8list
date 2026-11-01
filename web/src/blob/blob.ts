@@ -9,7 +9,7 @@ import type { Look } from "./style";
 
 const FOV = (30 * Math.PI) / 180;
 /// The canvas is this much larger than the art slot, so the liquid can spill out.
-export const SPILL = 1.8;
+export const SPILL = 2;
 const DIST = SPILL / Math.tan(FOV / 2);
 const MORPH_IN = 1.4; // s from flat artwork to liquid
 // The jump: a spring that each prominent kick or bass hit kicks upwards. Hits are
@@ -21,6 +21,9 @@ const STRETCH = 0.08; // stretch per unit of speed: long while flying, squashed 
 const PUMP = 0.7; // size kick of a snare hit
 const PUMP_STIFF = 160;
 const PUMP_DAMPING = 12;
+const THROB = 0.09; // size swing with the bass line's envelope
+const SNARE_ATTACK = 0.03; // s; spikes grow in rather than pop
+const SNARE_RELEASE = 0.15; // s
 const TEXTURE_SIZE = 512;
 const SLOW_FRAME = 0.02; // s; frames slower than this for SLOW_FOR …
 const SLOW_FOR = 2; // … seconds step the quality down
@@ -28,8 +31,8 @@ const SLOW_FOR = 2; // … seconds step the quality down
 const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
 
 const UNIFORMS = [
-  "uProj", "uDist", "uTime", "uMorph", "uLevel", "uWobble", "uKick", "uKickAge", "uDrop",
-  "uGain", "uTwist", "uRipple", "uShock", "uScale", "uLift", "uJelly", "uPointer",
+  "uProj", "uDist", "uTime", "uMorph", "uLevel", "uWobble", "uKick", "uKickAge", "uSnare", "uDrop", "uBass", "uGrowl",
+  "uGain", "uSpike", "uStep", "uTwist", "uRipple", "uShock", "uScale", "uLift", "uJelly", "uPointer",
   "uArt", "uAccent", "uHue", "uIri", "uMetal", "uHeat",
 ] as const;
 
@@ -56,6 +59,7 @@ export class LiquidBlob {
   /// Springs, position and speed: the jump (upwards) and the pump (size).
   private jump = [0, 0];
   private pump = [0, 0];
+  private snare = 0;
 
   /// Null where WebGL2 is not available.
   static create(touch: boolean): LiquidBlob | null {
@@ -189,7 +193,13 @@ export class LiquidBlob {
     gl.uniform1f(u.uKick, f.kick);
     gl.uniform1f(u.uKickAge, f.kickAge);
     gl.uniform1f(u.uDrop, f.drop);
+    gl.uniform1f(u.uBass, f.bass * look.throb);
+    gl.uniform1f(u.uGrowl, f.growl);
+    this.snare += (f.snare - this.snare) * (1 - Math.exp(-dt / (f.snare > this.snare ? SNARE_ATTACK : SNARE_RELEASE)));
+    gl.uniform1f(u.uSnare, this.snare);
     gl.uniform1f(u.uGain, look.gain);
+    gl.uniform1f(u.uSpike, look.spike);
+    gl.uniform1f(u.uStep, look.step);
     gl.uniform1f(u.uTwist, look.twist);
     gl.uniform1f(u.uRipple, look.ripple);
     gl.uniform1f(u.uShock, look.shock);
@@ -224,7 +234,8 @@ export class LiquidBlob {
     jump[0] = Math.min(MAX_LIFT, Math.max(-MAX_LIFT / 2, jump[0]));
     // Long while it flies up, squashed as it comes down and lands.
     const stretch = 1 + Math.min(0.18, Math.max(-0.15, jump[1] * STRETCH + Math.min(0, jump[0]) * 1.2));
-    const size = 1 + pump[0];
+    // Each "womb" of the bass line swells the whole drop.
+    const size = 1 + pump[0] + THROB * look.throb * f.bass;
     const side = size / Math.sqrt(stretch);
     const u = this.u;
     this.gl.uniform3f(u.uScale, side, size * stretch, side);

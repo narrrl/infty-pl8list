@@ -257,9 +257,9 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 /* The liquid drop spills past the art slot; taps go through it to the card. */
 .liquid-canvas {
   position: absolute;
-  inset: -40%;
-  width: 180%;
-  height: 180%;
+  inset: -50%;
+  width: 200%;
+  height: 200%;
   pointer-events: none;
 }
 .card.liquid .art { background-image: none !important; background-color: transparent; box-shadow: none; scale: 1; }

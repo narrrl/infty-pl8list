@@ -25,6 +25,12 @@ export interface Features {
   snareHit: number;
   /// How much the mids move (wobble bass, growls), 0..1.
   wobble: number;
+  /// The bass line's own envelope, 0..1 against the last moment: follows every
+  /// "womb" of a riddim wobble up and down.
+  bass: number;
+  /// How open the wobble's filter is, 0..1: low for a dark "oo", high for a bright
+  /// "wah" (spectral centroid of the bass and mids against its recent range).
+  growl: number;
   /// 0..1, high while the low end sits well above its recent average.
   drop: number;
 }
@@ -46,6 +52,15 @@ const SNARE_DECAY = 0.12; // s
 const PROMINENCE_MEMORY = 6; // s; a hit is weighed against the strongest ones this recent
 
 const WOBBLE_SMOOTH = 0.12; // s
+const BASS_BAND = [40, 400]; // Hz; body of a wobble bass
+const BASS_FOLLOW = 14; // dB/s; its range forgets this fast, so each wub spans it
+const BASS_MIN_RANGE = 6; // dB
+const BASS_ATTACK = 0.015; // s
+const BASS_RELEASE = 0.06; // s
+const GROWL_BAND = [100, 3000]; // Hz
+const GROWL_FOLLOW = 0.6; // octaves/s
+const GROWL_MIN_RANGE = 1.2; // octaves
+const GROWL_SMOOTH = 0.05; // s
 const DROP_SHORT = 1; // s of low-end loudness …
 const DROP_LONG = 12; // … against this much
 const DROP_HEARD_DB = -70; // the low end counts as sounding above this
@@ -57,16 +72,21 @@ const DROP_RELEASE = 2; // s
 const ease = (dt: number, tau: number) => 1 - Math.exp(-dt / tau);
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-/// Maps a band's dB level into its recent range.
+/// Maps a value (a band's dB level) into its recent range.
 class Range {
-  private floor = -60;
-  private ceil = -30;
+  constructor(
+    private floor = -60,
+    private ceil = -30,
+    private ceilFall = CEIL_FALL,
+    private floorRise = FLOOR_RISE,
+    private minRange = MIN_RANGE,
+  ) {}
 
-  update(db: number, dt: number): number {
-    this.ceil = db > this.ceil ? db : this.ceil - CEIL_FALL * dt;
-    this.floor = db < this.floor ? db : this.floor + FLOOR_RISE * dt;
-    const span = Math.max(MIN_RANGE, this.ceil - this.floor);
-    return clamp01((db - (this.ceil - span)) / span);
+  update(x: number, dt: number): number {
+    this.ceil = x > this.ceil ? x : this.ceil - this.ceilFall * dt;
+    this.floor = x < this.floor ? x : this.floor + this.floorRise * dt;
+    const span = Math.max(this.minRange, this.ceil - this.floor);
+    return clamp01((x - (this.ceil - span)) / span);
   }
 }
 
@@ -105,12 +125,14 @@ class Onset {
 }
 
 export class FeatureTracker {
-  readonly f: Features = { sub: 0, low: 0, mid: 0, high: 0, kick: 0, snare: 0, kickAge: 99, kickHit: 0, snareHit: 0, wobble: 0, drop: 0 };
+  readonly f: Features = { sub: 0, low: 0, mid: 0, high: 0, kick: 0, snare: 0, kickAge: 99, kickHit: 0, snareHit: 0, wobble: 0, bass: 0, growl: 0, drop: 0 };
   private bins: Float32Array<ArrayBuffer> | null = null;
   private prev: Float32Array<ArrayBuffer> | null = null;
   private ranges = { sub: new Range(), low: new Range(), mid: new Range(), high: new Range() };
   private kick = new Onset(KICK_DECAY);
   private snare = new Onset(SNARE_DECAY);
+  private bassRange = new Range(-60, -30, BASS_FOLLOW, BASS_FOLLOW, BASS_MIN_RANGE);
+  private growlRange = new Range(7, 9, GROWL_FOLLOW, GROWL_FOLLOW, GROWL_MIN_RANGE);
   private lastMid = 0;
   private wobblePeak = 1;
   private short = SILENCE_DB;
@@ -150,6 +172,20 @@ export class FeatureTracker {
 
     const f = this.f;
     for (const band of Object.keys(BANDS) as Band[]) f[band] = this.ranges[band].update(db[band], dt);
+
+    // The wobble: loudness of the bass body, and where its energy sits.
+    let bassPower = 0;
+    for (let i = bin(BASS_BAND[0]); i <= bin(BASS_BAND[1]); i++) bassPower += 10 ** (Math.max(SILENCE_DB, bins[i]) / 10);
+    const bassDb = Math.max(SILENCE_DB, 10 * Math.log10(bassPower / (bin(BASS_BAND[1]) - bin(BASS_BAND[0]) + 1)));
+    const bass = this.bassRange.update(bassDb, dt);
+    f.bass += (bass - f.bass) * ease(dt, bass > f.bass ? BASS_ATTACK : BASS_RELEASE);
+    let weight = 0, sum = 0;
+    for (let i = bin(GROWL_BAND[0]); i <= bin(GROWL_BAND[1]); i++) {
+      const p = 10 ** (Math.max(SILENCE_DB, bins[i]) / 10);
+      weight += p;
+      sum += p * Math.log2(i * hz);
+    }
+    if (weight > 0) f.growl += (this.growlRange.update(sum / weight, dt) - f.growl) * ease(dt, GROWL_SMOOTH);
     this.kick.update((flux.sub + flux.low) / 2, now, dt);
     this.snare.update((flux.mid + flux.high) / 2, now, dt);
     f.kick = this.kick.env;
@@ -164,7 +200,8 @@ export class FeatureTracker {
   /// One frame where there is no analyser: only the loudness from the waveform.
   fromLoudness(level: number, dt: number): Features {
     const f = this.f;
-    f.sub = f.low = f.mid = f.high = level;
+    f.sub = f.low = f.mid = f.high = f.bass = level;
+    f.growl = 0.3;
     f.kick = f.snare = f.kickHit = f.snareHit = 0;
     f.kickAge = 99;
     this.track(level, level > 0 ? 20 * Math.log10(level) : SILENCE_DB, dt);
@@ -176,7 +213,7 @@ export class FeatureTracker {
     const f = this.f;
     const k = Math.exp(-dt / 0.35);
     f.sub *= k; f.low *= k; f.mid *= k; f.high *= k;
-    f.kick *= k; f.snare *= k; f.wobble *= k; f.drop *= k;
+    f.kick *= k; f.snare *= k; f.wobble *= k; f.drop *= k; f.bass *= k; f.growl *= k;
     f.kickAge += dt;
     f.kickHit = f.snareHit = 0;
     return f;

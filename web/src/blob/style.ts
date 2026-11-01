@@ -8,6 +8,12 @@ export interface Look {
   flow: number;
   /// Overall size of the movement.
   gain: number;
+  /// Spikes on snares and bright wobbles.
+  spike: number;
+  /// 0 smooth, 1 stepped (stiff, quantised) lobes.
+  step: number;
+  /// How much the bass line's envelope swells the whole drop.
+  throb: number;
   /// How high prominent hits make the drop jump.
   bounce: number;
   /// Spring stiffness of the jump: higher snaps back faster, lower floats.
@@ -25,14 +31,14 @@ export interface Look {
   hue: number;
 }
 
-const BASE: Look = { flow: 1, gain: 1, bounce: 1, stiff: 90, twist: 0.15, ripple: 1, shock: 1, iri: 0.1, metal: 0.3, heat: 0, hue: 0 };
+const BASE: Look = { flow: 1, gain: 1, spike: 0.5, step: 0, throb: 1, bounce: 1, stiff: 90, twist: 0.15, ripple: 1, shock: 1, iri: 0.1, metal: 0.3, heat: 0, hue: 0 };
 
 const TAGS: Record<string, (l: Look) => void> = {
-  riddim: (l) => Object.assign(l, { bounce: 1.3, stiff: 120, metal: 0.9, shock: 1.4, ripple: 0.7 }),
-  tearout: (l) => Object.assign(l, { bounce: 1.4, gain: l.gain * 1.2, heat: 0.7 }),
-  deathstep: (l) => Object.assign(l, { bounce: 1.4, gain: l.gain * 1.2, heat: 0.9, metal: 0.7 }),
-  melodic: (l) => Object.assign(l, { iri: 0.8, bounce: 0.6, stiff: 55, gain: l.gain * 0.9, flow: l.flow * 0.8, metal: 0.1 }),
-  colourbass: (l) => Object.assign(l, { iri: 1, bounce: 0.8, stiff: 70, metal: 0.15 }),
+  riddim: (l) => Object.assign(l, { step: 0.5, spike: 0.6, throb: 1.4, bounce: 1.3, stiff: 120, metal: 0.9, shock: 1.4, ripple: 1.2 }),
+  tearout: (l) => Object.assign(l, { spike: 1.3, bounce: 1.4, gain: l.gain * 1.15, heat: 0.7 }),
+  deathstep: (l) => Object.assign(l, { spike: 1.4, bounce: 1.4, gain: l.gain * 1.15, heat: 0.9, metal: 0.7 }),
+  melodic: (l) => Object.assign(l, { iri: 0.8, spike: 0.15, throb: 0.7, bounce: 0.6, stiff: 55, gain: l.gain * 0.9, flow: l.flow * 0.8, metal: 0.1 }),
+  colourbass: (l) => Object.assign(l, { iri: 1, spike: 0.25, bounce: 0.8, stiff: 70, metal: 0.15 }),
   dnb: (l) => Object.assign(l, { ripple: 1.6 }),
   "170": (l) => Object.assign(l, { ripple: 1.5 }),
   halftime: (l) => Object.assign(l, { flow: l.flow * 0.7, gain: l.gain * 1.15, stiff: 70 }),

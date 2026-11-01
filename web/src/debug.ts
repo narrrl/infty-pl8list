@@ -3,7 +3,7 @@
 
 import type { Features } from "./features";
 
-const KEYS: (keyof Features)[] = ["sub", "low", "mid", "high", "kick", "snare", "wobble", "drop"];
+const KEYS: (keyof Features)[] = ["sub", "low", "mid", "high", "bass", "growl", "kick", "snare", "wobble", "drop"];
 
 /// Onsets counted since the overlay opened; also on `window.audioDebug` for scripts.
 const counts = { kicks: 0, snares: 0, frames: 0 };
@@ -13,7 +13,7 @@ export function audioDebug(): (f: Features) => void {
   let lastAge = 99, lastSnare = 0;
   const canvas = document.createElement("canvas");
   canvas.className = "audio-debug";
-  const w = (canvas.width = 240), h = (canvas.height = 124);
+  const w = (canvas.width = 300), h = (canvas.height = 124);
   document.body.append(canvas);
   const ctx = canvas.getContext("2d")!;
   ctx.font = "10px system-ui, sans-serif";

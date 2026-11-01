@@ -64,9 +64,9 @@ uniform float uDist;    // camera distance
 uniform float uTime;    // flow time, runs with the tempo
 uniform float uMorph;   // 0 flat disc (the static artwork), 1 liquid
 // Music, see features.ts.
-uniform float uLevel, uWobble, uKickAge, uDrop;
+uniform float uLevel, uWobble, uKickAge, uSnare, uDrop, uBass, uGrowl;
 // Character of the track, see style.ts.
-uniform float uGain, uTwist, uRipple, uShock;
+uniform float uGain, uSpike, uStep, uTwist, uRipple, uShock;
 // The jump on prominent hits, from the springs in blob.ts.
 uniform vec3 uScale;    // squash and stretch
 uniform float uLift;    // upwards
@@ -79,20 +79,29 @@ out vec2 vFlat;    // front projection of the resting sphere, for the artwork
 
 ${NOISE}
 
-// Only broad, smooth shapes: the drop always wobbles like jelly and never creases.
+// Every layer keeps a floor, so the drop never goes still and nothing snaps in from
+// nothing; the music only turns each layer up and down.
 float disp(vec3 p) {
   vec3 q = p;
   float a = uTwist * (p.y + 0.3 * sin(uTime)) * (0.5 + uWobble);
   q.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * q.xz;
   float t = uTime;
-  float body = snoise(q * 0.9 + vec3(0.0, t * 0.35, t * 0.2)) * (0.11 + 0.05 * uLevel + 0.07 * uDrop + 0.1 * uJelly);
-  float sway = snoise(q * 1.7 - vec3(t * 0.5, 0.0, t * 0.3)) * (0.035 + 0.03 * uWobble + 0.05 * uJelly);
-  float ripple = snoise(q * 2.6 + vec3(t * 1.1, -t * 0.8, 0.0)) * 0.02 * uWobble * uRipple;
-  // After each kick a broad wave runs from the front of the drop round to the back.
+  // Big lobes: swell on every "womb" of the bass line.
+  float lobes = snoise(q * 1.1 + vec3(0.0, t * 0.35, t * 0.2))
+    * (0.07 + 0.05 * uLevel + 0.11 * uBass + 0.08 * uDrop + 0.08 * uJelly);
+  // Terraces with soft edges: stiff, but no torn shards.
+  float steps = lobes * 10.0;
+  lobes = mix(lobes, (floor(steps) + smoothstep(0.3, 0.7, fract(steps))) / 10.0, uStep);
+  float sway = snoise(q * 1.7 - vec3(t * 0.5, 0.0, t * 0.3)) * (0.03 + 0.03 * uWobble);
+  // Crinkles open up with the wobble's filter: dark "oo" smooth, bright "wah" rough.
+  float ripples = snoise(q * 3.2 + vec3(t * 1.3, -t, 0.0)) * (0.012 + 0.035 * uWobble + 0.045 * uGrowl * uBass) * uRipple;
+  float n = snoise(q * 2.4 - vec3(0.0, t * 0.6, t * 0.9));
+  float spikes = pow(max(n, 0.0), 3.0) * (0.05 + 0.25 * uSnare + 0.15 * uGrowl * uBass + 0.1 * uDrop) * uSpike;
+  // After each kick a wave runs from the front of the drop round to the back.
   float angle = acos(clamp(p.z, -1.0, 1.0));
-  float wave = exp(-pow((angle - uKickAge * 4.5) * 1.3, 2.0)) * exp(-uKickAge * 2.5) * 0.06 * uShock;
+  float wave = exp(-pow((angle - uKickAge * 5.0) * 1.8, 2.0)) * exp(-uKickAge * 2.8) * 0.09 * uShock;
   float dent = -0.18 * uPointer.w * exp(-pow(distance(p, uPointer.xyz) * 2.2, 2.0));
-  return clamp((body + sway + ripple + wave) * uGain + dent, -0.3, 0.32);
+  return clamp((lobes + sway + ripples + spikes + wave) * uGain + dent, -0.3, 0.4);
 }
 
 vec3 shape(vec3 p) {
@@ -126,7 +135,7 @@ in vec2 vFlat;
 
 uniform sampler2D uArt;
 uniform vec3 uAccent;
-uniform float uTime, uMorph, uKick, uDrop;
+uniform float uTime, uMorph, uKick, uDrop, uBass, uGrowl;
 uniform float uHue;    // rim hue offset, radians
 uniform float uIri;    // how much the rim hue drifts
 uniform float uMetal;  // sharper, brighter highlights
@@ -147,7 +156,7 @@ void main() {
   // Looking through the surface bends the artwork like water does.
   vec2 bend = n.xy * (0.22 + 0.1 * uDrop) * uMorph;
   vec2 uv = 0.5 + vec2(vFlat.x, -vFlat.y) * 0.48 - vec2(bend.x, -bend.y) * 0.5;
-  vec2 split = n.xy * (0.004 + 0.02 * uKick) * uMorph;
+  vec2 split = n.xy * (0.004 + 0.02 * uKick + 0.008 * uGrowl * uBass) * uMorph;
   vec3 art = vec3(texture(uArt, uv + split).r, texture(uArt, uv).g, texture(uArt, uv - split).b);
   art = mix(art, smoothstep(0.0, 1.0, art), 0.6 * uDrop);
 
@@ -157,7 +166,7 @@ void main() {
   rim = mix(rim, vec3(1.0, 0.35, 0.1), uHeat * 0.6);
 
   vec3 col = art * mix(1.0, 0.45, fres * uMorph);
-  col += rim * fres * (0.6 + 0.7 * uKick + 0.4 * uDrop) * uMorph;
+  col += rim * fres * (0.5 + 0.7 * uKick + 0.4 * uDrop + 0.5 * uBass) * uMorph;
   col += spec * uMorph;
   outColor = vec4(col, 1.0);
 }
