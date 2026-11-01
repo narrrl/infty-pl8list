@@ -263,6 +263,8 @@ fn event_signal(kind: &str) -> f64 {
         "complete" => 1.5,
         "skip" => -1.0,
         "dislike" => -3.0,
+        // Taking a dislike back.
+        "undislike" => 3.0,
         _ => 0.0,
     }
 }
@@ -300,7 +302,7 @@ pub struct Taste {
 pub fn taste(conn: &Connection, user_id: i64) -> rusqlite::Result<Taste> {
     let mut stmt = conn.prepare_cached(
         "SELECT e.track_id, e.kind, t.handle, t.bpm, t.key FROM events e JOIN tracks t ON t.id = e.track_id \
-         WHERE e.user_id = ? AND e.kind IN ('like', 'unlike', 'complete', 'skip', 'dislike') ORDER BY e.ts",
+         WHERE e.user_id = ? AND e.kind IN ('like', 'unlike', 'complete', 'skip', 'dislike', 'undislike') ORDER BY e.ts",
     )?;
     let mut artist: HashMap<String, f64> = HashMap::new();
     // (track id, bpm, key), in the order they became positive.
@@ -476,6 +478,17 @@ pub fn serialize(r: &Track, score: Option<f64>) -> Value {
         "waveform": wave.as_deref().and_then(|w| serde_json::from_str::<Value>(w).ok()),
         "score": score.map(|s| (s * 1000.0).round() / 1000.0),
     })
+}
+
+/// One track by its pl8list path, for links into the app.
+pub fn track_by_path(conn: &Connection, handle: &str, slug: &str) -> rusqlite::Result<Option<Value>> {
+    let mut stmt = conn.prepare_cached("SELECT * FROM tracks WHERE handle=? AND slug=?")?;
+    let Some(t) = rusqlite::OptionalExtension::optional(stmt.query_row([handle, slug], Track::from_row))? else {
+        return Ok(None);
+    };
+    let mut out = vec![serialize(&t, None)];
+    add_tags(conn, &mut out)?;
+    Ok(out.pop())
 }
 
 /// Liked tracks, newest like first.

@@ -14,7 +14,7 @@ use tokio::time::Instant;
 use super::{App, CurrentUser, Res, St, json_error, no_store};
 use crate::{db, ranker, sync};
 
-const EVENT_KINDS: &[&str] = &["play", "like", "unlike", "skip", "complete", "dislike"];
+const EVENT_KINDS: &[&str] = &["play", "like", "unlike", "skip", "complete", "dislike", "undislike"];
 /// On a cold start the crawler needs a few seconds before there is anything to serve.
 const FEED_WAIT: Duration = Duration::from_secs(10);
 
@@ -142,6 +142,26 @@ pub async fn event(State(app): St, Extension(current): Extension<CurrentUser>, J
         }
     }
     Ok((no_store(), Json(json!({ "ok": true }))).into_response())
+}
+
+/// One track, for a link into the app (`/?t=handle/slug`).
+pub async fn track(State(app): St, Extension(current): Extension<CurrentUser>, Query(q): Query<HashMap<String, String>>) -> Res {
+    let uid = match current.require() {
+        Ok(u) => u.id,
+        Err(r) => return Ok(r),
+    };
+    let handle = q.get("handle").filter(|h| valid_handle(h)).cloned();
+    let slug = q.get("slug").filter(|s| valid_handle(s)).cloned();
+    let (Some(handle), Some(slug)) = (handle, slug) else {
+        return Ok(StatusCode::BAD_REQUEST.into_response());
+    };
+    let Some(track) = app.db.call(move |c| ranker::track_by_path(c, &handle, &slug)).await? else {
+        return Ok(json_error(StatusCode::NOT_FOUND, "no such track here (yet)"));
+    };
+    let mut tracks = [track];
+    mark_followed(&app, uid, &mut tracks).await?;
+    let [track] = tracks;
+    Ok((no_store(), Json(json!({ "track": track }))).into_response())
 }
 
 /// How many neighbours the radio sheet shows, and how few count as still exploring.

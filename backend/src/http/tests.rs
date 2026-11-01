@@ -419,6 +419,49 @@ async fn feed_modes_filter_and_tag_tracks() {
 }
 
 #[tokio::test]
+async fn track_links_and_taking_a_dislike_back() {
+    let (r, app, _) = setup("track", "http://127.0.0.1:9").await;
+    let token = app
+        .db
+        .call(|c| {
+            let t = crate::db::Track {
+                id: 1,
+                handle: "a".into(),
+                artist_name: "A".into(),
+                slug: "riddim-one".into(),
+                title: "Riddim one".into(),
+                bpm: Some(140.0),
+                full_access: true,
+                ..Default::default()
+            };
+            crate::db::upsert_tracks(c, &[t], None)?;
+            crate::db::upsert_user(c, 5, "tester", None, None)?;
+            crate::db::create_session(c, 5)
+        })
+        .await
+        .unwrap();
+    let cookie = format!("__Host-pl8inf={token}");
+    let get = |uri: &str| r.clone().oneshot(req("GET", uri, None, Some(&cookie), "203.0.113.1"));
+    let res = get("/local/track?handle=a&slug=riddim-one").await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = json_body(res).await;
+    assert_eq!(body["track"]["id"], 1);
+    assert_eq!(body["track"]["followed"], false);
+    assert_eq!(get("/local/track?handle=a&slug=nope").await.unwrap().status(), StatusCode::NOT_FOUND);
+    assert_eq!(get("/local/track?handle=a&slug=..").await.unwrap().status(), StatusCode::BAD_REQUEST);
+    let anon = r.clone().oneshot(req("GET", "/local/track?handle=a&slug=riddim-one", None, None, "203.0.113.1")).await.unwrap();
+    assert_eq!(anon.status(), StatusCode::UNAUTHORIZED);
+
+    for kind in ["dislike", "undislike"] {
+        let body = format!(r#"{{"track_id":1,"kind":"{kind}"}}"#);
+        let res = r.clone().oneshot(req("POST", "/local/event", Some(&body), Some(&cookie), "203.0.113.1")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{kind}");
+    }
+    let taste = app.db.call(|c| crate::ranker::taste(c, 5)).await.unwrap();
+    assert_eq!(taste.artist.get("a").copied().unwrap_or(0.0), 0.0);
+}
+
+#[tokio::test]
 async fn artist_sheet_and_radio_reasons() {
     let (r, app, _) = setup("radio", "http://127.0.0.1:9").await;
     let token = app
