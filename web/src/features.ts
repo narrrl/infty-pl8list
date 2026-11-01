@@ -43,6 +43,7 @@ const SNARE_DECAY = 0.12; // s
 const WOBBLE_SMOOTH = 0.12; // s
 const DROP_SHORT = 1; // s of low-end loudness …
 const DROP_LONG = 12; // … against this much
+const DROP_HEARD_DB = -70; // the low end counts as sounding above this
 const DROP_RISE_DB = 2.5; // dB above the long average where a drop starts
 const DROP_FULL_DB = 5; // dB above the start for a full drop
 const DROP_ATTACK = 0.25; // s
@@ -103,6 +104,9 @@ export class FeatureTracker {
   private wobblePeak = 1;
   private short = SILENCE_DB;
   private long = SILENCE_DB;
+  /// Seconds of sound heard so far: the long average covers no more than that, so
+  /// music that starts in the middle of a drop is the baseline, not a drop.
+  private heard = 0;
 
   /// One frame from the analyser.
   fromAnalyser(an: AnalyserNode, now: number, dt: number): Features {
@@ -172,10 +176,13 @@ export class FeatureTracker {
     this.wobblePeak = Math.max(1, speed, this.wobblePeak * Math.exp(-dt / 4));
     f.wobble += (clamp01(speed / this.wobblePeak) - f.wobble) * ease(dt, WOBBLE_SMOOTH);
 
-    // Start from the first sound heard, or every track would open with a drop.
-    if (this.long <= SILENCE_DB) this.short = this.long = lowDb;
+    if (this.heard === 0) {
+      if (lowDb < DROP_HEARD_DB) return;
+      this.short = this.long = lowDb;
+    }
+    this.heard += dt;
     this.short += (lowDb - this.short) * ease(dt, DROP_SHORT);
-    this.long += (lowDb - this.long) * ease(dt, DROP_LONG);
+    this.long += (lowDb - this.long) * ease(dt, Math.min(DROP_LONG, DROP_SHORT + this.heard));
     const target = clamp01((this.short - this.long - DROP_RISE_DB) / DROP_FULL_DB);
     f.drop += (target - f.drop) * ease(dt, target > f.drop ? DROP_ATTACK : DROP_RELEASE);
   }
