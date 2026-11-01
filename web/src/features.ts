@@ -19,6 +19,10 @@ export interface Features {
   snare: number;
   /// Seconds since the last kick; large when there was none.
   kickAge: number;
+  /// Set for the one frame a hit lands: how prominent it is against recent hits,
+  /// 0..1 (the loudest hits of the last seconds are 1). 0 on every other frame.
+  kickHit: number;
+  snareHit: number;
   /// How much the mids move (wobble bass, growls), 0..1.
   wobble: number;
   /// 0..1, high while the low end sits well above its recent average.
@@ -39,6 +43,7 @@ const ONSET_MIN_FLUX = 1.2; // dB of mean rise per bin; quieter changes are nois
 const ONSET_REFRACTORY = 0.11; // s
 const KICK_DECAY = 0.16; // s
 const SNARE_DECAY = 0.12; // s
+const PROMINENCE_MEMORY = 6; // s; a hit is weighed against the strongest ones this recent
 
 const WOBBLE_SMOOTH = 0.12; // s
 const DROP_SHORT = 1; // s of low-end loudness …
@@ -70,8 +75,10 @@ class Onset {
   private mean = 0;
   private variance = 1;
   private last = -1;
+  private peak = ONSET_MIN_FLUX;
   env = 0;
   age = 99;
+  hit = 0;
 
   constructor(private decay: number) {}
 
@@ -83,7 +90,11 @@ class Onset {
     this.mean += a * d;
     this.variance += a * (d * d - this.variance);
     this.age += dt;
+    this.peak = Math.max(ONSET_MIN_FLUX, this.peak * Math.exp(-dt / PROMINENCE_MEMORY));
+    this.hit = 0;
     if (hit) {
+      this.peak = Math.max(this.peak, flux);
+      this.hit = clamp01(flux / this.peak);
       this.last = now;
       this.env = 1;
       this.age = 0;
@@ -94,7 +105,7 @@ class Onset {
 }
 
 export class FeatureTracker {
-  readonly f: Features = { sub: 0, low: 0, mid: 0, high: 0, kick: 0, snare: 0, kickAge: 99, wobble: 0, drop: 0 };
+  readonly f: Features = { sub: 0, low: 0, mid: 0, high: 0, kick: 0, snare: 0, kickAge: 99, kickHit: 0, snareHit: 0, wobble: 0, drop: 0 };
   private bins: Float32Array<ArrayBuffer> | null = null;
   private prev: Float32Array<ArrayBuffer> | null = null;
   private ranges = { sub: new Range(), low: new Range(), mid: new Range(), high: new Range() };
@@ -143,7 +154,9 @@ export class FeatureTracker {
     this.snare.update((flux.mid + flux.high) / 2, now, dt);
     f.kick = this.kick.env;
     f.kickAge = this.kick.age;
+    f.kickHit = this.kick.hit;
     f.snare = this.snare.env;
+    f.snareHit = this.snare.hit;
     this.track(f.mid, Math.max(db.sub, db.low), dt);
     return f;
   }
@@ -152,7 +165,7 @@ export class FeatureTracker {
   fromLoudness(level: number, dt: number): Features {
     const f = this.f;
     f.sub = f.low = f.mid = f.high = level;
-    f.kick = f.snare = 0;
+    f.kick = f.snare = f.kickHit = f.snareHit = 0;
     f.kickAge = 99;
     this.track(level, level > 0 ? 20 * Math.log10(level) : SILENCE_DB, dt);
     return f;
@@ -165,6 +178,7 @@ export class FeatureTracker {
     f.sub *= k; f.low *= k; f.mid *= k; f.high *= k;
     f.kick *= k; f.snare *= k; f.wobble *= k; f.drop *= k;
     f.kickAge += dt;
+    f.kickHit = f.snareHit = 0;
     return f;
   }
 

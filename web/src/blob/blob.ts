@@ -9,9 +9,18 @@ import type { Look } from "./style";
 
 const FOV = (30 * Math.PI) / 180;
 /// The canvas is this much larger than the art slot, so the liquid can spill out.
-export const SPILL = 1.5;
+export const SPILL = 1.8;
 const DIST = SPILL / Math.tan(FOV / 2);
-const MORPH_IN = 0.7; // s from flat artwork to liquid
+const MORPH_IN = 1.4; // s from flat artwork to liquid
+// The jump: a spring that each prominent kick or bass hit kicks upwards. Hits are
+// weighed by prominence squared, so only the strongest really make it jump.
+const JUMP = 1.9; // upward speed of a full-strength hit, in radii per second
+const JUMP_DAMPING = 7; // 1/s; low enough that it jiggles a few times as it lands
+const MAX_LIFT = 0.16; // radii
+const STRETCH = 0.08; // stretch per unit of speed: long while flying, squashed on landing
+const PUMP = 0.7; // size kick of a snare hit
+const PUMP_STIFF = 160;
+const PUMP_DAMPING = 12;
 const TEXTURE_SIZE = 512;
 const SLOW_FRAME = 0.02; // s; frames slower than this for SLOW_FOR …
 const SLOW_FOR = 2; // … seconds step the quality down
@@ -19,8 +28,8 @@ const SLOW_FOR = 2; // … seconds step the quality down
 const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
 
 const UNIFORMS = [
-  "uProj", "uDist", "uTime", "uMorph", "uLevel", "uWobble", "uKick", "uKickAge", "uSnare", "uDrop",
-  "uGain", "uSpike", "uStep", "uTwist", "uRipple", "uShock", "uPointer",
+  "uProj", "uDist", "uTime", "uMorph", "uLevel", "uWobble", "uKick", "uKickAge", "uDrop",
+  "uGain", "uTwist", "uRipple", "uShock", "uScale", "uLift", "uJelly", "uPointer",
   "uArt", "uAccent", "uHue", "uIri", "uMetal", "uHeat",
 ] as const;
 
@@ -44,6 +53,9 @@ export class LiquidBlob {
   private pointer = [0, 0, 1, 0];
   private pointerGoal = [0, 0, 1, 0];
   private slow = 0;
+  /// Springs, position and speed: the jump (upwards) and the pump (size).
+  private jump = [0, 0];
+  private pump = [0, 0];
 
   /// Null where WebGL2 is not available.
   static create(touch: boolean): LiquidBlob | null {
@@ -162,11 +174,12 @@ export class LiquidBlob {
     gl.viewport(0, 0, w, h);
 
     this.morph = Math.min(1, this.morph + dt / MORPH_IN);
-    const morph = 1 - (1 - this.morph) ** 3;
+    const morph = this.morph * this.morph * (3 - 2 * this.morph);
     // The liquid flows with the tempo, faster when the music moves more.
     this.time += dt * look.flow * (playing ? 0.6 + 0.8 * f.wobble + 0.6 * f.drop : 0.25);
     const k = 1 - Math.exp(-dt / 0.15);
     for (let i = 0; i < 4; i++) this.pointer[i] += (this.pointerGoal[i] - this.pointer[i]) * k;
+    const moving = this.bounce(f, dt, look);
 
     const u = this.u;
     gl.uniform1f(u.uTime, this.time);
@@ -175,11 +188,8 @@ export class LiquidBlob {
     gl.uniform1f(u.uWobble, f.wobble);
     gl.uniform1f(u.uKick, f.kick);
     gl.uniform1f(u.uKickAge, f.kickAge);
-    gl.uniform1f(u.uSnare, f.snare);
     gl.uniform1f(u.uDrop, f.drop);
     gl.uniform1f(u.uGain, look.gain);
-    gl.uniform1f(u.uSpike, look.spike);
-    gl.uniform1f(u.uStep, look.step);
     gl.uniform1f(u.uTwist, look.twist);
     gl.uniform1f(u.uRipple, look.ripple);
     gl.uniform1f(u.uShock, look.shock);
@@ -193,7 +203,34 @@ export class LiquidBlob {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.bindVertexArray(this.vao);
     gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0);
-    return this.morph < 1 || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
+    return this.morph < 1 || moving || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
+  }
+
+  /// Step the springs and set the jump uniforms. True while they still move.
+  private bounce(f: Features, dt: number, look: Look): boolean {
+    const [jump, pump] = [this.jump, this.pump];
+    if (f.kickHit) jump[1] += JUMP * look.bounce * f.kickHit ** 2;
+    if (f.snareHit) pump[1] += PUMP * look.bounce * f.snareHit ** 2;
+    // The size also follows the bass and the drop, through the same spring.
+    const pumpRest = 0.04 * f.low + 0.05 * f.drop;
+    // Small fixed steps keep the springs stable on slow frames.
+    for (let left = Math.min(dt, 0.1); left > 0; left -= 1 / 240) {
+      const h = Math.min(left, 1 / 240);
+      jump[1] += (-look.stiff * jump[0] - JUMP_DAMPING * jump[1]) * h;
+      jump[0] += jump[1] * h;
+      pump[1] += (-PUMP_STIFF * (pump[0] - pumpRest) - PUMP_DAMPING * pump[1]) * h;
+      pump[0] += pump[1] * h;
+    }
+    jump[0] = Math.min(MAX_LIFT, Math.max(-MAX_LIFT / 2, jump[0]));
+    // Long while it flies up, squashed as it comes down and lands.
+    const stretch = 1 + Math.min(0.18, Math.max(-0.15, jump[1] * STRETCH + Math.min(0, jump[0]) * 1.2));
+    const size = 1 + pump[0];
+    const side = size / Math.sqrt(stretch);
+    const u = this.u;
+    this.gl.uniform3f(u.uScale, side, size * stretch, side);
+    this.gl.uniform1f(u.uLift, Math.max(0, jump[0]));
+    this.gl.uniform1f(u.uJelly, Math.min(1, Math.abs(jump[1]) * 0.4 + Math.abs(pump[1]) * 0.6));
+    return Math.abs(jump[0]) + Math.abs(jump[1]) + Math.abs(pump[1]) > 0.002;
   }
 
   /// Step the quality down when frames keep coming in slow.

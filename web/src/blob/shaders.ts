@@ -64,9 +64,13 @@ uniform float uDist;    // camera distance
 uniform float uTime;    // flow time, runs with the tempo
 uniform float uMorph;   // 0 flat disc (the static artwork), 1 liquid
 // Music, see features.ts.
-uniform float uLevel, uWobble, uKick, uKickAge, uSnare, uDrop;
+uniform float uLevel, uWobble, uKickAge, uDrop;
 // Character of the track, see style.ts.
-uniform float uGain, uSpike, uStep, uTwist, uRipple, uShock;
+uniform float uGain, uTwist, uRipple, uShock;
+// The jump on prominent hits, from the springs in blob.ts.
+uniform vec3 uScale;    // squash and stretch
+uniform float uLift;    // upwards
+uniform float uJelly;   // extra wobble while a jump rings out, 0..1
 uniform vec4 uPointer;  // direction on the sphere, strength
 
 out vec3 vPos;     // view space
@@ -75,24 +79,20 @@ out vec2 vFlat;    // front projection of the resting sphere, for the artwork
 
 ${NOISE}
 
+// Only broad, smooth shapes: the drop always wobbles like jelly and never creases.
 float disp(vec3 p) {
   vec3 q = p;
   float a = uTwist * (p.y + 0.3 * sin(uTime)) * (0.5 + uWobble);
   q.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * q.xz;
   float t = uTime;
-  float lobes = snoise(q * 1.1 + vec3(0.0, t * 0.35, t * 0.2)) * (0.05 + 0.12 * uLevel + 0.12 * uDrop);
-  // Terraces with soft edges: stiff, but no torn shards.
-  float steps = lobes * 10.0;
-  lobes = mix(lobes, (floor(steps) + smoothstep(0.3, 0.7, fract(steps))) / 10.0, uStep);
-  float ripples = snoise(q * 3.2 + vec3(t * 1.3, -t, 0.0)) * (0.012 + 0.07 * uWobble) * uRipple;
-  float n = snoise(q * 2.4 - vec3(0.0, t * 0.6, t * 0.9));
-  float spikes = pow(max(n, 0.0), 3.0) * (0.06 + 0.35 * uSnare + 0.15 * uDrop) * uSpike;
-  // After each kick a ring runs from the front of the drop round to the back.
+  float body = snoise(q * 0.9 + vec3(0.0, t * 0.35, t * 0.2)) * (0.11 + 0.05 * uLevel + 0.07 * uDrop + 0.1 * uJelly);
+  float sway = snoise(q * 1.7 - vec3(t * 0.5, 0.0, t * 0.3)) * (0.035 + 0.03 * uWobble + 0.05 * uJelly);
+  float ripple = snoise(q * 2.6 + vec3(t * 1.1, -t * 0.8, 0.0)) * 0.02 * uWobble * uRipple;
+  // After each kick a broad wave runs from the front of the drop round to the back.
   float angle = acos(clamp(p.z, -1.0, 1.0));
-  float ring = exp(-pow((angle - uKickAge * 6.0) * 2.5, 2.0)) * exp(-uKickAge * 3.0) * 0.14 * uShock;
-  float swell = uKick * 0.05;
+  float wave = exp(-pow((angle - uKickAge * 4.5) * 1.3, 2.0)) * exp(-uKickAge * 2.5) * 0.06 * uShock;
   float dent = -0.18 * uPointer.w * exp(-pow(distance(p, uPointer.xyz) * 2.2, 2.0));
-  return clamp((lobes + ripples + spikes + ring + swell) * uGain + dent, -0.3, 0.42);
+  return clamp((body + sway + ripple + wave) * uGain + dent, -0.3, 0.32);
 }
 
 vec3 shape(vec3 p) {
@@ -110,8 +110,8 @@ void main() {
   vec3 s = shape(p);
   vec3 n = normalize(cross(shape(normalize(p + t1 * e)) - s, shape(normalize(p + t2 * e)) - s));
   if (dot(n, p) < 0.0) n = -n;
-  vPos = s - vec3(0.0, 0.0, uDist);
-  vNormal = n;
+  vPos = s * uScale + vec3(0.0, uLift, -uDist);
+  vNormal = normalize(n / uScale);
   vFlat = p.xy;
   gl_Position = uProj * vec4(vPos, 1.0);
 }
