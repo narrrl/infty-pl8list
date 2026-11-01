@@ -151,6 +151,12 @@ export class Pager {
   private move(e: PointerEvent): void {
     const d = this.drag;
     if (!d || e.pointerId !== d.id) return;
+    // The button came up where we did not see it (outside the window, or while
+    // the drop was being turned).
+    if (e.pointerType === "mouse" && !(e.buttons & 1)) {
+      this.up(e, true);
+      return;
+    }
     const dx = e.clientX - d.x0;
     const dy = e.clientY - d.y0;
     if (!d.active) {

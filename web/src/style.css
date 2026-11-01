@@ -266,18 +266,27 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   height: 200%;
   pointer-events: none;
 }
-/* The halo stays behind the drop and pulses with it; the text sits on top where
-   the drop spills over it. */
+/* A halo stays behind the drop and pulses with it; the text sits on top where the
+   drop spills over it. The drop shows play and pause on itself (blob/shaders.ts). */
 .card.liquid .art {
   z-index: 0;
   background-image: none !important;
   background-color: transparent;
-  box-shadow: 0 0 calc(30px + var(--energy) * 80px) color-mix(in oklab, var(--card-accent) calc(18% + var(--energy) * 40%), transparent);
+  box-shadow: none;
   scale: 1;
+}
+.card.liquid .art::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--card-accent) calc(20% + var(--energy) * 40%), transparent), transparent);
+  pointer-events: none;
 }
 .card.liquid .content > :not(.art) { position: relative; z-index: 1; }
 .card.liquid .title { text-shadow: 0 2px 16px #000b; }
-.card.liquid .initial { display: none; }
+.card.liquid .initial, .card.liquid .paused-badge { display: none; }
+/* Hidden, not removed: it takes itself away when its animation ends. */
+.card.liquid .flash { visibility: hidden; }
 @media (pointer: fine) {
   .card.liquid .art { cursor: grab; }
   .card.turning, .card.turning .art { cursor: grabbing; }

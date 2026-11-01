@@ -15,7 +15,7 @@ import type { Player } from "./player";
 
 export type VisualsSetting = "liquid" | "simple";
 const VISUALS_KEY = "pl8inf.visuals";
-const SLOP = 8; // px before a press on the drop turns it
+const SLOP = 10; // px before a press on the drop turns it
 const REACH = 1.2; // how far past the art's radius the drop can be grabbed
 
 export class Visualizer {
@@ -137,8 +137,8 @@ export class Visualizer {
     if (on) this.start();
   }
 
-  // Dragging the drop turns it. On touch only a sideways drag does, as up and
-  // down turn the page; a mouse can turn it any way.
+  // Dragging the drop turns it. On touch only a clearly sideways drag does, as up
+  // and down turn the page; a mouse can turn it any way (the wheel turns pages).
 
   private down(e: PointerEvent): void {
     this.pointer(e, true);
@@ -158,16 +158,19 @@ export class Visualizer {
       this.grab = null;
       return;
     }
+    // The button came up outside the window.
+    if (e.pointerType === "mouse" && !(e.buttons & 1)) {
+      this.up(e);
+      return;
+    }
     const dx = e.clientX - g.x, dy = e.clientY - g.y;
     if (!g.on) {
       if (Math.hypot(dx, dy) < SLOP) return;
-      if (e.pointerType !== "mouse" && Math.abs(dy) >= Math.abs(dx)) {
+      if (e.pointerType !== "mouse" && Math.abs(dx) < 2 * Math.abs(dy)) {
         this.grab = null;
         return;
       }
       g.on = true;
-      // Keep the moves when the mouse leaves the window.
-      document.documentElement.setPointerCapture(e.pointerId);
       this.blob!.spin.hold(true);
       this.card?.el?.classList.add("turning");
     }

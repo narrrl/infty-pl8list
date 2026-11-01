@@ -26,6 +26,10 @@ const THROB = 0.09; // size swing with the bass line's envelope
 const WHIRL = 15; // rad/s of hand spin at which it bulges and sloshes the most
 const SNARE_ATTACK = 0.03; // s; spikes grow in rather than pop
 const SNARE_RELEASE = 0.15; // s
+// The play/pause icon: pausing pops up the bars, which melt into the play triangle;
+// playing melts the triangle back into the bars as they fade.
+const ICON_MELT = 0.35; // s the bars show before turning into the triangle
+const ICON_FADE = 0.3; // s the bars show after playing starts
 const TEXTURE_SIZE = 512;
 const SLOW_FRAME = 0.02; // s; frames slower than this for SLOW_FOR …
 const SLOW_FOR = 2; // … seconds step the quality down
@@ -34,7 +38,7 @@ const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
 
 const UNIFORMS = [
   "uProj", "uDist", "uTime", "uMorph", "uLevel", "uWobble", "uKick", "uKickAge", "uSnare", "uDrop", "uBass", "uGrowl",
-  "uGain", "uSpike", "uStep", "uTwist", "uRipple", "uShock", "uScale", "uLift", "uJelly", "uPointer", "uRot", "uFront",
+  "uGain", "uSpike", "uStep", "uTwist", "uRipple", "uShock", "uScale", "uLift", "uJelly", "uPointer", "uRot", "uFront", "uIcon", "uIconA",
   "uArt", "uAccent", "uHue", "uIri", "uMetal", "uHeat",
 ] as const;
 
@@ -64,6 +68,11 @@ export class LiquidBlob {
   private jump = [0, 0];
   private pump = [0, 0];
   private snare = 0;
+  /// The icon: its shape (0 pause, 1 play), how much it shows, and since when the
+  /// playing state is what it is. Null until the first frame of a track.
+  private icon = [1, 1];
+  private iconFor: boolean | null = null;
+  private iconAge = 0;
 
   /// Null where WebGL2 is not available.
   static create(touch: boolean): LiquidBlob | null {
@@ -146,6 +155,7 @@ export class LiquidBlob {
     this.morph = 0;
     this.slow = 0;
     this.spin.reset();
+    this.iconFor = null;
     const source = await artwork(art, initial).catch(() => artwork(null, initial));
     if (gen !== this.gen || this.gl.isContextLost()) return false;
     const gl = this.gl;
@@ -192,6 +202,7 @@ export class LiquidBlob {
     const k = 1 - Math.exp(-dt / 0.15);
     for (let i = 0; i < 4; i++) this.pointer[i] += (this.pointerGoal[i] - this.pointer[i]) * k;
     const spinning = this.spin.step(dt);
+    const showing = this.showIcon(playing, dt);
     const moving = this.bounce(f, dt, look);
 
     const u = this.u;
@@ -226,7 +237,7 @@ export class LiquidBlob {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.bindVertexArray(this.vao);
     gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0);
-    return this.morph < 1 || moving || spinning || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
+    return this.morph < 1 || moving || spinning || showing || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
   }
 
   /// Step the springs and set the jump uniforms. True while they still move.
@@ -257,6 +268,28 @@ export class LiquidBlob {
     this.gl.uniform1f(u.uLift, Math.max(0, jump[0]));
     this.gl.uniform1f(u.uJelly, Math.min(1, Math.abs(jump[1]) * 0.4 + Math.abs(pump[1]) * 0.6 + 0.5 * whirl));
     return Math.abs(jump[0]) + Math.abs(jump[1]) + Math.abs(pump[1]) > 0.002;
+  }
+
+  /// Step the play/pause icon and set its uniforms. True while it still moves.
+  private showIcon(playing: boolean, dt: number): boolean {
+    const icon = this.icon;
+    if (this.iconFor === null) {
+      // A new track: no pop, just what holds now.
+      icon[0] = icon[1] = playing ? 0 : 1;
+      this.iconAge = 1;
+    } else if (this.iconFor !== playing) {
+      this.iconAge = 0;
+      if (!playing) icon[0] = 0;
+      icon[1] = 1;
+    }
+    this.iconFor = playing;
+    this.iconAge += dt;
+    const goal = playing ? [0, this.iconAge < ICON_FADE ? 1 : 0] : [this.iconAge < ICON_MELT ? 0 : 1, 1];
+    const k = 1 - Math.exp(-dt / 0.1);
+    for (let i = 0; i < 2; i++) icon[i] += (goal[i] - icon[i]) * k;
+    this.gl.uniform1f(this.u.uIcon, icon[0]);
+    this.gl.uniform1f(this.u.uIconA, icon[1]);
+    return Math.abs(goal[0] - icon[0]) + Math.abs(goal[1] - icon[1]) > 0.005 || this.iconAge < ICON_MELT;
   }
 
   /// Step the quality down when frames keep coming in slow.
