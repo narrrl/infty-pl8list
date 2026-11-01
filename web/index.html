@@ -29,23 +29,36 @@
     <symbol id="i-vol" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4.5v15L8 15H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></symbol>
     <symbol id="i-mute" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4.5v15L8 15H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></symbol>
     <symbol id="i-rewind" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M14.27 7.54A5 5 0 1 0 16.76 13.55"/><path fill="currentColor" d="M17.66 10.79l1.13 4.26-4.56-1.48z"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></symbol>
+    <symbol id="i-comment" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4.5 5.5h15v10h-8l-4.5 3.5v-3.5h-2.5z"/></symbol>
     <symbol id="i-pause" viewBox="0 0 24 24"><path fill="currentColor" d="M7 4.5h3.5v15H7zM13.5 4.5H17v15h-3.5z"/></symbol>
   </svg>
 
   <header id="bar" hidden>
     <span class="logo"><svg aria-hidden="true"><use href="#i-rewind"/></svg><span class="logo-pl8">pl8list </span><b>rewind</b></span>
+    <nav id="mode-tabs" aria-label="feed">
+      <button type="button" data-mode="classic">for you</button>
+      <button type="button" data-mode="riddim">riddim</button>
+      <button type="button" data-mode="fresh">fresh</button>
+      <button type="button" data-mode="deep">deep cuts</button>
+    </nav>
     <button id="mode-chip" type="button" title="back to your feed" hidden>
       <span class="chip-avatar" aria-hidden="true"></span><span class="chip-label"></span><span aria-hidden="true">×</span>
     </button>
-    <span id="stats"></span>
-    <button id="filters-btn" type="button" aria-controls="filters" aria-expanded="false">filters</button>
-    <button id="likes-btn" type="button" aria-controls="likes" aria-expanded="false">likes</button>
-    <div id="volume" hidden>
-      <button id="mute-btn" type="button" title="mute (m)" aria-label="mute" aria-pressed="false"><svg><use href="#i-vol"/></svg></button>
-      <input id="volume-slider" type="range" min="0" max="1" step="0.01" aria-label="volume">
+    <div class="bar-end">
+      <div id="volume" hidden>
+        <button id="mute-btn" type="button" class="icon-btn" title="mute (m)" aria-label="mute" aria-pressed="false"><svg><use href="#i-vol"/></svg></button>
+        <input id="volume-slider" type="range" min="0" max="1" step="0.01" aria-label="volume">
+      </div>
+      <button id="history-btn" type="button" class="icon-btn" title="history (h)" aria-label="history" aria-controls="history"><svg><use href="#i-clock"/></svg></button>
+      <button id="likes-btn" type="button" class="icon-btn" title="likes" aria-label="likes" aria-controls="likes"><svg><use href="#i-heart"/></svg></button>
+      <button id="filters-btn" type="button" class="icon-btn" title="filters and settings" aria-label="filters and settings" aria-controls="filters"><svg><use href="#i-sliders"/></svg></button>
+      <button id="account-btn" type="button" class="avatar-btn" title="account" aria-label="account" aria-controls="account"></button>
     </div>
-    <button id="help-btn" type="button" title="shortcuts (?)" aria-label="help">?</button>
-    <button id="account-btn" type="button" aria-controls="account" aria-expanded="false" title="account"></button>
   </header>
 
   <div id="login" hidden>
@@ -89,33 +102,73 @@
     </div>
   </div>
 
-  <form id="filters" class="panel" hidden>
-    <fieldset class="modes">
-      <legend>feed</legend>
-      <label><input type="radio" name="mode" value="classic"> for you</label>
-      <label><input type="radio" name="mode" value="riddim"> riddim</label>
-      <label><input type="radio" name="mode" value="fresh"> fresh</label>
-      <label><input type="radio" name="mode" value="deep"> deep cuts</label>
+  <form id="filters" aria-labelledby="filters-title">
+    <h2 id="filters-title">filters and settings</h2>
+    <fieldset>
+      <legend>filters</legend>
+      <label class="switch"><input type="checkbox" name="free"> <span>free downloads only</span></label>
+      <div class="bpm">
+        <div class="bpm-head"><span>bpm</span><output id="bpm-out">any</output></div>
+        <div class="range2">
+          <input type="range" name="bpm_min" min="60" max="200" step="1" value="60" aria-label="lowest bpm">
+          <input type="range" name="bpm_max" min="60" max="200" step="1" value="200" aria-label="highest bpm">
+        </div>
+        <div class="presets">
+          <button type="button" data-bpm="60-200">any</button>
+          <button type="button" data-bpm="138-142">140</button>
+          <button type="button" data-bpm="148-152">150</button>
+          <button type="button" data-bpm="165-178">170</button>
+        </div>
+      </div>
+      <div class="sheet-actions">
+        <button type="submit" class="primary">apply filters</button>
+        <button type="button" id="filters-clear" class="link">clear</button>
+      </div>
     </fieldset>
     <fieldset class="modes">
       <legend>visuals</legend>
       <label><input type="radio" name="visuals" value="liquid"> liquid</label>
       <label><input type="radio" name="visuals" value="simple"> simple</label>
     </fieldset>
-    <label><input type="checkbox" name="free"> free only</label>
-    <label>bpm <input type="number" name="bpm_min" min="40" max="250" placeholder="min"></label>
-    <label>– <input type="number" name="bpm_max" min="40" max="250" placeholder="max"></label>
-    <button type="submit">apply</button>
-    <button type="button" id="filters-clear" class="link">clear</button>
+    <fieldset class="modes">
+      <legend>crossfade</legend>
+      <label><input type="radio" name="crossfade" value="0"> cut</label>
+      <label><input type="radio" name="crossfade" value="0.9"> short</label>
+      <label><input type="radio" name="crossfade" value="4"> long</label>
+      <label><input type="radio" name="crossfade" value="8"> dj mix</label>
+    </fieldset>
+    <label class="switch"><input type="checkbox" name="bass"> <span>bass boost</span></label>
+    <fieldset class="modes">
+      <legend>sleep timer <span id="sleep-left"></span></legend>
+      <label><input type="radio" name="sleep" value="off"> off</label>
+      <label><input type="radio" name="sleep" value="15"> 15 min</label>
+      <label><input type="radio" name="sleep" value="30"> 30 min</label>
+      <label><input type="radio" name="sleep" value="60"> 1 h</label>
+      <label><input type="radio" name="sleep" value="end"> end of track</label>
+    </fieldset>
+    <button type="button" id="help-open-settings" class="link">gestures and shortcuts</button>
   </form>
 
-  <aside id="likes" class="panel" hidden>
-    <h2>likes</h2>
-    <ol id="likes-list"></ol>
+  <aside id="likes" aria-labelledby="likes-title">
+    <h2 id="likes-title">likes</h2>
+    <div class="sheet-tools">
+      <input id="likes-search" type="search" placeholder="search your likes" aria-label="search your likes" autocomplete="off">
+      <label class="switch small"><input type="checkbox" id="likes-shuffle"> <span>shuffle</span></label>
+      <button type="button" id="likes-play" class="primary"><svg><use href="#i-play"/></svg> play</button>
+    </div>
+    <ol id="likes-list" class="track-list"></ol>
   </aside>
 
-  <aside id="account" class="panel" hidden>
+  <aside id="history" aria-labelledby="history-title">
+    <h2 id="history-title">played lately</h2>
+    <p class="fineprint">kept on this device only.</p>
+    <ol id="history-list" class="track-list"></ol>
+    <button type="button" id="history-clear" class="link">clear history</button>
+  </aside>
+
+  <aside id="account" aria-labelledby="account-handle">
     <h2 id="account-handle"></h2>
+    <p id="stats"></p>
     <section id="sync" aria-labelledby="sync-title">
       <h3 id="sync-title">pl8list sync</h3>
       <p id="sync-status"></p>
@@ -142,8 +195,16 @@
   <p id="feed-status" role="status" hidden></p>
 
   <div id="start" hidden>
-    <button type="button">tap anywhere to start</button>
+    <button type="button" class="start-play" aria-label="start playing"><svg><use href="#i-play"/></svg></button>
+    <p class="start-track"></p>
+    <p class="start-hint">tap anywhere to start</p>
   </div>
+
+  <button type="button" id="up-next" hidden>
+    <span class="up-next-avatar" aria-hidden="true"></span>
+    <span class="up-next-text"><small>up next</small><span class="up-next-title"></span></span>
+    <svg aria-hidden="true"><use href="#i-down"/></svg>
+  </button>
 
   <!-- Artist radio: who the radio is built around, and who is next to them. -->
   <div id="station" hidden>
@@ -172,14 +233,15 @@
     <button type="button" id="radio-end-next" class="primary"></button>
   </div>
 
-  <div id="help" hidden>
+  <div id="help" aria-labelledby="help-title">
     <div class="help-box">
-      <h2>controls</h2>
+      <h2 id="help-title">controls</h2>
       <dl class="touch-only">
         <dt>tap</dt><dd>play / pause</dd>
         <dt>double-tap</dt><dd>like</dd>
         <dt>swipe up / down</dt><dd>next / previous</dd>
         <dt>drag waveform</dt><dd>seek</dd>
+        <dt>hold the drop</dt><dd>wheel up: rewind the tune</dd>
       </dl>
       <dl class="pointer-only">
         <dt>click · space</dt><dd>play / pause</dd>
@@ -192,6 +254,10 @@
         <dt>s</dt><dd>share</dd>
         <dt>v</dt><dd>liquid / simple visuals</dd>
         <dt>z</dt><dd>zen: just the drop</dd>
+        <dt>c</dt><dd>filters and settings</dd>
+        <dt>h</dt><dd>history</dd>
+        <dt>w · hold drop</dt><dd>wheel up: rewind the tune</dd>
+        <dt>0–9 · , .</dt><dd>jump to 0–90 % · seek 5 s</dd>
         <dt>m · + −</dt><dd>mute · volume</dd>
         <dt>?</dt><dd>this help</dd>
       </dl>
@@ -218,9 +284,10 @@
         <p class="why"></p>
         <h1 class="title"></h1>
         <div class="byline">
+          <span class="artist-avatar" aria-hidden="true"></span>
           <a class="artist" target="_blank" rel="noopener"></a>
-          <button type="button" class="follow" title="follow artist (f)">follow</button>
-          <button type="button" class="radio" title="more like this artist (r)">radio</button>
+          <button type="button" class="follow pill" title="follow artist (f)"><svg><use href="#i-plus"/></svg><span>follow</span></button>
+          <button type="button" class="radio pill" title="more like this artist (r)"><svg><use href="#i-radio"/></svg><span>radio</span></button>
         </div>
         <div class="chips"></div>
         <p class="desc"></p>
@@ -228,15 +295,14 @@
           <canvas class="wave"></canvas>
           <span class="wave-tip"></span>
         </div>
-        <div class="time"><span class="cur">0:00</span><span class="dur"></span></div>
-        <div class="counts"></div>
+        <div class="time"><span class="cur">0:00</span><span class="counts"></span><span class="dur"></span></div>
       </div>
       <nav class="actions">
-        <button type="button" class="like" title="like (l)" aria-label="like"><svg><use href="#i-heart"/></svg></button>
-        <button type="button" class="dislike" title="not for me (x)" aria-label="not for me"><svg><use href="#i-x"/></svg></button>
-        <button type="button" class="share" title="share (s)" aria-label="share"><svg><use href="#i-share"/></svg></button>
-        <a class="open" target="_blank" rel="noopener" title="open on pl8list" aria-label="open on pl8list"><svg><use href="#i-open"/></svg></a>
-        <button type="button" class="next" title="next (j)" aria-label="next"><svg><use href="#i-down"/></svg></button>
+        <button type="button" class="act like" title="like (l)" aria-label="like"><span class="ring"><svg><use href="#i-heart"/></svg></span><span class="n saves"></span></button>
+        <button type="button" class="act dislike" title="not for me (x)" aria-label="not for me"><span class="ring"><svg><use href="#i-x"/></svg></span><span class="n">nope</span></button>
+        <button type="button" class="act share" title="share (s)" aria-label="share"><span class="ring"><svg><use href="#i-share"/></svg></span><span class="n">share</span></button>
+        <a class="act open" target="_blank" rel="noopener" title="open on pl8list" aria-label="open on pl8list"><span class="ring"><svg><use href="#i-comment"/></svg></span><span class="n comments"></span></a>
+        <button type="button" class="act next" title="next (j)" aria-label="next"><span class="ring"><svg><use href="#i-down"/></svg></span><span class="n">next</span></button>
       </nav>
     </section>
   </template>

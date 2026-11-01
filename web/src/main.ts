@@ -2,9 +2,12 @@ import "./style.css";
 
 import * as api from "./api";
 import type { Filters, Mode, Pl8Status, Stats, Track, User } from "./api";
-import { Card, type CardActions, cleanTitle } from "./cards";
+import { Card, type CardActions, cleanTitle, fmtTime } from "./cards";
+import { accentForName } from "./color";
+import * as heard from "./history";
 import { Pager } from "./pager";
 import { Player } from "./player";
+import { Sheet } from "./sheet";
 import { Station } from "./station";
 import { type VisualsSetting, Visualizer } from "./visual";
 
@@ -12,8 +15,12 @@ const PREFETCH_AHEAD = 4; // fetch more when this close to the end
 const SKIP_SECONDS = 8; // leaving earlier than this counts as a skip
 const COMPLETE_RATIO = 0.85;
 const DOUBLE_TAP_MS = 300;
+const LONG_PRESS_MS = 550; // holding the drop this long rewinds the tune
 const PRELOAD_AFTER_MS = 2500; // start buffering the next track once this one has played a bit
 const KEEP_BUILT = 3; // cards further than this from the current one drop their elements
+const HISTORY_AFTER = 1; // s heard before a track goes into the history
+const SLEEP_FADE = 10; // s the sleep timer fades out over
+const BPM_RANGE = [60, 200]; // the BPM slider's ends, which mean "no limit"
 const FILTERS_KEY = "pl8inf.filters";
 const MODE_KEY = "pl8inf.mode";
 const HINT_KEY = "pl8inf.hintShown";
@@ -25,20 +32,25 @@ const feedStatus = $("feed-status");
 const statsEl = $("stats");
 const filtersForm = $<HTMLFormElement>("filters");
 const filtersBtn = $("filters-btn");
-const likesPanel = $("likes");
-const likesBtn = $("likes-btn");
-const accountPanel = $("account");
 const accountBtn = $("account-btn");
 const startEl = $("start");
-const helpEl = $("help");
 const toastEl = $("toast");
 const loginEl = $("login");
+const upNext = $<HTMLButtonElement>("up-next");
+const radioEnd = $("radio-end");
 
 const isTouch = !matchMedia("(hover: hover) and (pointer: fine)").matches;
-const radioEnd = $("radio-end");
 
 const player = new Player();
 const visual = new Visualizer(player, isTouch);
+
+const sheets = {
+  filters: new Sheet(filtersForm, filtersBtn),
+  likes: new Sheet($("likes"), $("likes-btn")),
+  history: new Sheet($("history"), $("history-btn")),
+  account: new Sheet($("account"), accountBtn),
+  help: new Sheet($("help")),
+};
 
 // Installable as an app; see public/sw.js. The dev server has no /sw.js.
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
@@ -53,12 +65,15 @@ let listened = 0; // seconds actually heard on the active card
 let lastTime = 0;
 let reported = false; // final event already sent for the active card
 let advanced = false; // already mixed into the next track
+let remembered = false; // the active card is in the history
 let preloadTimer = 0;
 let filters: Filters = loadFilters();
 let mode: Mode = loadMode();
 let stats: Stats | null = null;
 let jumpOnLoad = false; // a radio just started: go to its first track as soon as it is here
 let radioDry = false; // the artist radio found nothing more; say so on its last card
+/// Playing the likes in order (or shuffled) instead of the feed. Null for the feed.
+let queue: { tracks: Track[]; next: number } | null = null;
 
 const current = () => cards[active] as Card | undefined;
 
@@ -78,6 +93,10 @@ function setStatus(text: string): void {
 
 async function loadMore(): Promise<void> {
   if (loading) return;
+  if (queue) {
+    fromQueue();
+    return;
+  }
   loading = true;
   if (!cards.length) setStatus("crawling pl8list, first tracks in a few seconds…");
   const gen = feedGen;
@@ -100,11 +119,7 @@ async function loadMore(): Promise<void> {
     radioDry = false;
     updateRadioEnd();
     const station = mode.mode === "artist" ? mode.name : undefined;
-    cards.push(...data.tracks.map((t) => new Card(t, actions, { station })));
-    pager.refresh();
-    if (active < 0) activate(0);
-    else if (jumpOnLoad) go(active + 1);
-    jumpOnLoad = false;
+    addCards(data.tracks.map((t) => new Card(t, actions, { station })));
   } catch (err) {
     if (gen !== feedGen) return;
     if (err instanceof api.HttpError && err.status === 401) {
@@ -118,17 +133,38 @@ async function loadMore(): Promise<void> {
   loading = false;
 }
 
+function addCards(more: Card[]): void {
+  cards.push(...more);
+  pager.refresh();
+  if (active < 0) activate(0);
+  else if (jumpOnLoad) go(active + 1);
+  jumpOnLoad = false;
+  showUpNext();
+}
+
 function showStats(s?: Stats): void {
   if (s) stats = s;
   if (stats) statsEl.textContent = `${stats.tracks} tracks · ${stats.artists_crawled}/${stats.artists} artists crawled · ${stats.liked} liked`;
 }
 
 let toastTimer = 0;
-function toast(text: string, ms = 2200): void {
-  toastEl.textContent = text;
+/// A short note at the bottom; `action` adds a button to it, like "undo".
+function toast(text: string, ms = 2200, action?: { label: string; run: () => void }): void {
+  toastEl.replaceChildren(text);
+  if (action) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = action.label;
+    b.addEventListener("click", () => {
+      toastEl.classList.remove("show");
+      action.run();
+    }, { once: true });
+    toastEl.append(b);
+  }
+  toastEl.classList.toggle("has-action", !!action);
   toastEl.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), ms);
+  toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), action ? Math.max(ms, 5000) : ms);
 }
 
 function finishActive(): void {
@@ -152,11 +188,13 @@ function activate(idx: number): void {
   lastTime = 0;
   reported = false;
   advanced = false;
+  remembered = false;
   const card = cards[idx];
   if (pager.index !== idx) pager.go(idx, { instant: true });
   card.element().classList.add("current");
   visual.attach(card);
   if (started) play(card.track);
+  else showStart(card);
   clearTimeout(preloadTimer);
   preloadTimer = window.setTimeout(() => {
     const next = cards[active + 1];
@@ -164,6 +202,7 @@ function activate(idx: number): void {
   }, PRELOAD_AFTER_MS);
   if (idx >= cards.length - PREFETCH_AHEAD) loadMore();
   updateRadioEnd();
+  showUpNext();
   cards.forEach((c, i) => { if (c.el && Math.abs(i - idx) > KEEP_BUILT) c.release(); });
 }
 
@@ -180,6 +219,31 @@ function playbackFailed(): void {
   toast("couldn't play this one, skipping");
   go(active + 1);
 }
+
+/// Put `track` right after the current card and go there.
+function playNow(track: Track, liked = false): void {
+  Sheet.closeAll();
+  if (!started) start();
+  cards.splice(active + 1, 0, new Card(track, actions, { liked }));
+  pager.refresh();
+  go(active + 1);
+}
+
+// Up next -----------------------------------------------------------------
+
+function showUpNext(): void {
+  const next = cards[active + 1];
+  upNext.hidden = !next || !started;
+  if (!next) return;
+  const t = next.track;
+  upNext.querySelector(".up-next-title")!.textContent = `${cleanTitle(t.title)} · ${t.artist_name}`;
+  const av = upNext.querySelector<HTMLElement>(".up-next-avatar")!;
+  const img = api.artistImg(t);
+  av.style.backgroundImage = img ? `url("${img}")` : "";
+  av.style.backgroundColor = img ? "" : accentForName(t.artist_name || "?");
+  av.textContent = img ? "" : (t.artist_name || "?")[0].toUpperCase();
+}
+upNext.addEventListener("click", () => go(active + 1));
 
 // Card actions ------------------------------------------------------------
 
@@ -206,9 +270,17 @@ function setLike(card: Card, liked: boolean): void {
 function dislike(card: Card): void {
   api.sendEvent(card.track, "dislike");
   if (card === current()) reported = true; // a dislike says more than a skip
-  if (card.liked) setLike(card, false);
-  toast("got it, less like this");
+  const wasLiked = card.liked;
+  if (wasLiked) setLike(card, false);
   go(cards.indexOf(card) + 1);
+  toast("skipped, less of this", 5000, {
+    label: "undo",
+    run: () => {
+      api.sendEvent(card.track, "undislike");
+      if (wasLiked) setLike(card, true);
+      go(cards.indexOf(card));
+    },
+  });
 }
 
 async function setFollow(card: Card, follow: boolean): Promise<void> {
@@ -228,12 +300,14 @@ async function setFollow(card: Card, follow: boolean): Promise<void> {
   }
 }
 
+/// Shares a link that opens this app on the track, with pl8list's own link in the text.
 async function share(card: Card): Promise<void> {
   const { track } = card;
-  const url = api.trackUrl(track);
+  const url = api.appTrackUrl(track);
+  const title = cleanTitle(track.title);
   if (navigator.share && isTouch) {
     try {
-      await navigator.share({ title: cleanTitle(track.title), text: `${cleanTitle(track.title)} by ${track.artist_name}`, url });
+      await navigator.share({ title, text: `${title} by ${track.artist_name} · ${api.trackUrl(track)}`, url });
     } catch { /* dismissed */ }
     return;
   }
@@ -245,6 +319,14 @@ async function share(card: Card): Promise<void> {
   }
 }
 
+/// The rewind: spin the drop back, slow the tune down, and run it again.
+function wheelUp(): void {
+  if (!current()) return;
+  visual.wheelUp();
+  player.wheelUp();
+  toast("wheel up!");
+}
+
 // Player events -----------------------------------------------------------
 
 player.on("timeupdate", () => {
@@ -253,10 +335,16 @@ player.on("timeupdate", () => {
   const d = t - lastTime;
   if (d > 0 && d < 1.5) listened += d; // ignore seeks
   lastTime = t;
-  current()?.setTime(t);
+  const card = current();
+  card?.setTime(t);
   updatePosition();
-  // Where tracks can be mixed, start the next one just before this one ends.
-  if (player.mixing && !advanced && !document.hidden && a.duration && a.duration - t < 1 && cards[active + 1]) {
+  if (card && !remembered && listened >= HISTORY_AFTER) {
+    remembered = true;
+    heard.add(card.track);
+  }
+  // Where tracks can be mixed, start the next one so they overlap by the crossfade.
+  const lead = Math.max(1, player.crossfade);
+  if (player.mixing && !advanced && !document.hidden && a.duration && a.duration - t < lead && cards[active + 1] && !sleepAtEnd) {
     advanced = true;
     if (!reported) { api.sendEvent(cards[active].track, "complete", listened); reported = true; }
     go(active + 1);
@@ -268,6 +356,12 @@ player.on("ended", () => {
   if (card && !reported) {
     api.sendEvent(card.track, "complete", listened);
     reported = true;
+  }
+  if (sleepAtEnd) {
+    sleepAtEnd = false;
+    showSleep();
+    toast("good night");
+    return;
   }
   go(active + 1);
 });
@@ -333,13 +427,38 @@ if ("mediaSession" in navigator) {
   }
 }
 
-// Tap to play/pause, double-tap to like ------------------------------------
+// Tap to play/pause, double-tap to like, hold to rewind ---------------------
 
 let lastTap: { at: number; card: Card | null; toggled: boolean } = { at: 0, card: null, toggled: false };
-let swallowClick = false; // the tap that only closed a panel
+let press: { timer: number; x: number; y: number } | null = null;
+let pressFired = false;
+
+feedEl.addEventListener("pointerdown", (e) => {
+  if (!started || !(e.target as Element).closest(".card.current .art")) return;
+  pressFired = false;
+  press = {
+    x: e.clientX,
+    y: e.clientY,
+    timer: window.setTimeout(() => {
+      press = null;
+      pressFired = true;
+      wheelUp();
+    }, LONG_PRESS_MS),
+  };
+});
+const cancelPress = (e: PointerEvent) => {
+  if (press && (e.type !== "pointermove" || Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10)) {
+    clearTimeout(press.timer);
+    press = null;
+  }
+};
+for (const ev of ["pointermove", "pointerup", "pointercancel"]) feedEl.addEventListener(ev, (e) => cancelPress(e as PointerEvent));
+// A long press opens the context menu on some phones.
+feedEl.addEventListener("contextmenu", (e) => { if ((e.target as Element).closest(".art")) e.preventDefault(); });
 
 feedEl.addEventListener("click", (e) => {
-  if (swallowClick || pager.suppressClick) { swallowClick = false; return; }
+  if (pager.suppressClick) return;
+  if (pressFired) { pressFired = false; return; }
   const target = e.target as Element;
   if (target.closest("button, a, input, .wave-wrap")) return;
   const el = target.closest(".card");
@@ -370,36 +489,6 @@ feedEl.addEventListener("click", (e) => {
 
 // Any gesture may set up the audio graph; browsers only allow it from one.
 for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, () => { if (started) player.unlock(); }, true);
-
-// Panels and overlays -----------------------------------------------------
-
-const panels: [HTMLElement, HTMLElement][] = [[filtersForm, filtersBtn], [likesPanel, likesBtn], [accountPanel, accountBtn]];
-
-function closePanels(): void {
-  for (const [panel, btn] of panels) {
-    panel.hidden = true;
-    btn.setAttribute("aria-expanded", "false");
-  }
-}
-
-function togglePanel(panel: HTMLElement): boolean {
-  const open = panel.hidden !== false;
-  closePanels();
-  if (open) {
-    panel.hidden = false;
-    panels.find(([p]) => p === panel)![1].setAttribute("aria-expanded", "true");
-  }
-  return open;
-}
-
-document.addEventListener("pointerdown", (e) => {
-  const open = panels.find(([p]) => !p.hidden);
-  const target = e.target as Element;
-  if (!open || open[0].contains(target) || target.closest("#bar")) return;
-  closePanels();
-  swallowClick = true;
-  setTimeout(() => { swallowClick = false; }, 500);
-}, true);
 
 // Volume ------------------------------------------------------------------
 
@@ -439,22 +528,16 @@ volumeSlider.addEventListener("wheel", (e) => {
   setVolume(player.volume - Math.sign(e.deltaY) * 0.05);
 }, { passive: false });
 
-let helpOpener: HTMLElement | null = null;
-const showHelp = () => {
-  helpOpener = document.activeElement as HTMLElement | null;
-  helpEl.hidden = false;
-  $("help-close").focus();
-};
-const hideHelp = () => {
-  if (helpEl.hidden) return;
-  helpEl.hidden = true;
-  helpOpener?.focus();
-};
-$("help-btn").addEventListener("click", showHelp);
-// The bar has no room for "?" on phones; the account panel has a way in.
-$("help-open").addEventListener("click", () => { closePanels(); showHelp(); });
-$("help-close").addEventListener("click", hideHelp);
-helpEl.addEventListener("click", (e) => { if (e.target === helpEl) hideHelp(); });
+// Start -------------------------------------------------------------------
+
+$("help-close").addEventListener("click", () => sheets.help.close());
+for (const id of ["help-open", "help-open-settings"]) $(id).addEventListener("click", () => sheets.help.open());
+
+/// The overlay before the first tap names what will play.
+function showStart(card: Card): void {
+  const t = card.track;
+  startEl.querySelector(".start-track")!.textContent = `${cleanTitle(t.title)} · ${t.artist_name}`;
+}
 
 function start(): void {
   if (started) return;
@@ -463,9 +546,10 @@ function start(): void {
   player.unlock();
   const card = current();
   if (card) activateAgain(card);
+  showUpNext();
   if (!localStorage.getItem(HINT_KEY)) {
     localStorage.setItem(HINT_KEY, "1");
-    toast(isTouch ? "tap to pause · double-tap to like · swipe up for next"
+    toast(isTouch ? "tap to pause · double-tap to like · hold the drop to rewind"
                   : "click to pause · double-click to like · ? for shortcuts", 5000);
   }
 }
@@ -483,47 +567,160 @@ function activateAgain(card: Card): void {
 
 // Likes -----------------------------------------------------------------
 
-likesBtn.addEventListener("click", async () => {
-  if (!togglePanel(likesPanel)) return;
-  const list = $("likes-list");
-  let tracks: Track[];
+const likesList = $("likes-list");
+const likesSearch = $<HTMLInputElement>("likes-search");
+const likesShuffle = $<HTMLInputElement>("likes-shuffle");
+let likedTracks: Track[] = [];
+
+/// A row in the likes or history sheet: artwork with a play button, title, artist.
+function trackRow(t: Track, sub: string, extra?: HTMLElement): HTMLLIElement {
+  const li = document.createElement("li");
+  li.className = "track-row";
+  const play = document.createElement("button");
+  play.type = "button";
+  play.className = "row-play";
+  play.title = "play now";
+  play.setAttribute("aria-label", `play ${cleanTitle(t.title)}`);
+  const img = api.artistImg(t);
+  if (img) play.style.backgroundImage = `url("${img}")`;
+  else play.style.backgroundColor = accentForName(t.artist_name || "?");
+  play.innerHTML = '<svg><use href="#i-play"/></svg>';
+  play.addEventListener("click", () => playNow(t, likedTracks.some((l) => l.id === t.id)));
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const a = document.createElement("a");
+  a.href = api.trackUrl(t);
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = cleanTitle(t.title);
+  const by = document.createElement("span");
+  by.textContent = sub;
+  meta.append(a, by);
+  li.append(play, meta);
+  if (extra) li.append(extra);
+  return li;
+}
+
+const matches = (t: Track, q: string) => !q || `${t.title} ${t.artist_name} ${(t.tags ?? []).join(" ")}`.toLowerCase().includes(q);
+
+function setCardsLiked(id: number, liked: boolean): void {
+  for (const c of cards) {
+    if (c.track.id !== id) continue;
+    c.liked = liked;
+    c.showLike();
+  }
+}
+
+function showLikes(): void {
+  const q = likesSearch.value.trim().toLowerCase();
+  const shown = likedTracks.filter((t) => matches(t, q));
+  likesList.replaceChildren(...shown.map((t) => {
+    const unlike = document.createElement("button");
+    unlike.type = "button";
+    unlike.className = "icon-btn row-unlike";
+    unlike.title = "unlike";
+    unlike.setAttribute("aria-label", `unlike ${cleanTitle(t.title)}`);
+    unlike.innerHTML = '<svg><use href="#i-heart"/></svg>';
+    unlike.addEventListener("click", () => {
+      api.sendEvent(t, "unlike");
+      if (stats) { stats.liked--; showStats(); }
+      setCardsLiked(t.id, false);
+      const at = likedTracks.indexOf(t);
+      likedTracks.splice(at, 1);
+      showLikes();
+      toast("unliked", 4000, {
+        label: "undo",
+        run: () => {
+          api.sendEvent(t, "like");
+          if (stats) { stats.liked++; showStats(); }
+          setCardsLiked(t.id, true);
+          likedTracks.splice(at, 0, t);
+          showLikes();
+        },
+      });
+    });
+    const sub = t.artist_name + (t.followed ? " · following" : "") + (t.bpm ? ` · ${Math.round(t.bpm)} bpm` : "");
+    return trackRow(t, sub, unlike);
+  }));
+  if (!likedTracks.length) likesList.textContent = "nothing liked yet. double-tap a track you like.";
+  else if (!shown.length) likesList.textContent = "no likes match that.";
+  $<HTMLButtonElement>("likes-play").disabled = !shown.length;
+}
+
+sheets.likes.onOpen = async () => {
+  likesList.textContent = "loading…";
   try {
-    ({ tracks } = await api.likes());
+    ({ tracks: likedTracks } = await api.likes());
   } catch (err) {
-    list.textContent = `couldn't load your likes: ${(err as Error).message}`;
+    likesList.textContent = `couldn't load your likes: ${(err as Error).message}`;
     return;
   }
-  list.replaceChildren(...tracks.map((t) => {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "play-now";
-    btn.title = "play now";
-    btn.innerHTML = '<svg><use href="#i-play"/></svg>';
-    btn.addEventListener("click", () => {
-      closePanels();
-      if (!started) start();
-      cards.splice(active + 1, 0, new Card(t, actions, { liked: true }));
-      pager.refresh();
-      go(active + 1);
-    });
-    const meta = document.createElement("div");
-    meta.className = "meta";
-    const a = document.createElement("a");
-    a.href = api.trackUrl(t);
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = cleanTitle(t.title);
-    const by = document.createElement("span");
-    by.textContent = t.artist_name + (t.followed ? " · following" : "");
-    meta.append(a, by);
-    li.append(btn, meta);
-    return li;
-  }));
-  if (!tracks.length) list.textContent = "nothing liked yet. double-tap a track you like.";
+  showLikes();
+};
+likesSearch.addEventListener("input", showLikes);
+
+/// Play the likes shown, in order or shuffled, instead of the feed.
+$("likes-play").addEventListener("click", () => {
+  const list = likedTracks.filter((t) => matches(t, likesSearch.value.trim().toLowerCase()));
+  if (!list.length) return;
+  if (likesShuffle.checked) {
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [list[i], list[j]] = [list[j], list[i]];
+    }
+  }
+  Sheet.closeAll();
+  if (!started) start();
+  queue = { tracks: list, next: 0 };
+  showMode();
+  for (const c of cards.splice(active + 1)) c.release();
+  feedGen++;
+  loading = false;
+  jumpOnLoad = true;
+  fromQueue();
+  toast(`playing ${list.length} like${list.length === 1 ? "" : "s"}${likesShuffle.checked ? ", shuffled" : ""}`);
 });
 
-// Filters ---------------------------------------------------------------
+/// The next few tracks of the likes queue as cards.
+function fromQueue(): void {
+  if (!queue) return;
+  const more = queue.tracks.slice(queue.next, queue.next + 5);
+  queue.next += more.length;
+  if (!more.length) {
+    setStatus("that was all of them. tap the chip up top for your feed.");
+    return;
+  }
+  addCards(more.map((t) => new Card(t, actions, { liked: true })));
+}
+
+// History ---------------------------------------------------------------
+
+const historyList = $("history-list");
+
+/// `ts` in seconds since the epoch.
+function ago(ts: number): string {
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  if (m < 48 * 60) return `${Math.round(m / 60)} h ago`;
+  return `${Math.round(m / 1440)} days ago`;
+}
+
+sheets.history.onOpen = () => {
+  const list = heard.load();
+  historyList.replaceChildren(...list.map((h) => trackRow(h.track, `${h.track.artist_name} · ${ago(h.at / 1000)}`)));
+  if (!list.length) historyList.textContent = "nothing played on this device yet.";
+};
+$("history-clear").addEventListener("click", () => {
+  heard.clear();
+  historyList.textContent = "cleared.";
+});
+
+// Filters and settings --------------------------------------------------
+
+const bpmMin = filtersForm.elements.namedItem("bpm_min") as HTMLInputElement;
+const bpmMax = filtersForm.elements.namedItem("bpm_max") as HTMLInputElement;
+const bpmOut = $("bpm-out");
 
 function loadFilters(): Filters {
   try {
@@ -533,28 +730,42 @@ function loadFilters(): Filters {
   }
 }
 
+function showBpm(): void {
+  // The two thumbs never cross.
+  if (Number(bpmMin.value) > Number(bpmMax.value)) [bpmMin.value, bpmMax.value] = [bpmMax.value, bpmMin.value];
+  const [lo, hi] = [Number(bpmMin.value), Number(bpmMax.value)];
+  const anyLo = lo <= BPM_RANGE[0], anyHi = hi >= BPM_RANGE[1];
+  bpmOut.textContent = anyLo && anyHi ? "any" : anyLo ? `up to ${hi}` : anyHi ? `${lo} and up` : lo === hi ? `${lo}` : `${lo}–${hi}`;
+  const span = BPM_RANGE[1] - BPM_RANGE[0];
+  filtersForm.style.setProperty("--lo", `${((lo - BPM_RANGE[0]) / span) * 100}%`);
+  filtersForm.style.setProperty("--hi", `${((hi - BPM_RANGE[0]) / span) * 100}%`);
+  for (const b of filtersForm.querySelectorAll<HTMLButtonElement>("[data-bpm]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.bpm === `${lo}-${hi}`));
+  }
+}
+
 function showFilters(): void {
-  const f = filtersForm.elements as unknown as Record<string, HTMLInputElement>;
-  f.free.checked = filters.free === "1";
-  f.bpm_min.value = filters.bpm_min || "";
-  f.bpm_max.value = filters.bpm_max || "";
+  (filtersForm.elements.namedItem("free") as HTMLInputElement).checked = filters.free === "1";
+  bpmMin.value = filters.bpm_min || String(BPM_RANGE[0]);
+  bpmMax.value = filters.bpm_max || String(BPM_RANGE[1]);
+  showBpm();
   filtersBtn.classList.toggle("active", Object.keys(filters).length > 0);
 }
 
 function applyFilters(): void {
-  const f = new FormData(filtersForm);
   filters = {};
-  if (f.get("free")) filters.free = "1";
-  if (f.get("bpm_min")) filters.bpm_min = String(f.get("bpm_min"));
-  if (f.get("bpm_max")) filters.bpm_max = String(f.get("bpm_max"));
+  if ((filtersForm.elements.namedItem("free") as HTMLInputElement).checked) filters.free = "1";
+  if (Number(bpmMin.value) > BPM_RANGE[0]) filters.bpm_min = bpmMin.value;
+  if (Number(bpmMax.value) < BPM_RANGE[1]) filters.bpm_max = bpmMax.value;
   localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
   showFilters();
-  closePanels();
+  Sheet.closeAll();
   refill();
 }
 
 /// Drop cards after the current one so a new filter or mode applies right away.
 function refill(): void {
+  queue = null;
   for (const c of cards.splice(active + 1)) c.release();
   pager.refresh();
   feedGen++;
@@ -562,9 +773,106 @@ function refill(): void {
   loadMore();
 }
 
+for (const input of [bpmMin, bpmMax]) input.addEventListener("input", showBpm);
+for (const b of filtersForm.querySelectorAll<HTMLButtonElement>("[data-bpm]")) {
+  b.addEventListener("click", () => {
+    [bpmMin.value, bpmMax.value] = b.dataset.bpm!.split("-");
+    showBpm();
+  });
+}
+
+function showSetting(name: string, value: string): void {
+  for (const input of filtersForm.querySelectorAll<HTMLInputElement>(`input[name=${name}]`)) input.checked = input.value === value;
+}
+
+function setVisuals(v: VisualsSetting): void {
+  visual.visuals = v;
+  showSetting("visuals", v);
+}
+
+filtersForm.addEventListener("change", (e) => {
+  const input = e.target as HTMLInputElement;
+  if (input.name === "visuals") setVisuals(input.value as VisualsSetting);
+  else if (input.name === "crossfade") player.crossfade = Number(input.value);
+  else if (input.name === "bass") player.bassBoost = input.checked;
+  else if (input.name === "sleep") setSleep(input.value);
+});
+filtersForm.addEventListener("submit", (e) => { e.preventDefault(); applyFilters(); });
+$("filters-clear").addEventListener("click", () => {
+  (filtersForm.elements.namedItem("free") as HTMLInputElement).checked = false;
+  [bpmMin.value, bpmMax.value] = BPM_RANGE.map(String);
+  applyFilters();
+});
+
+function showSettings(): void {
+  showSetting("visuals", visual.visuals);
+  // A saved crossfade that is not one of the choices shows as the nearest one.
+  const fades = [...filtersForm.querySelectorAll<HTMLInputElement>("input[name=crossfade]")].map((i) => Number(i.value));
+  const fade = fades.reduce((a, b) => (Math.abs(b - player.crossfade) < Math.abs(a - player.crossfade) ? b : a));
+  showSetting("crossfade", String(fade));
+  const bass = filtersForm.elements.namedItem("bass") as HTMLInputElement;
+  bass.checked = player.bassBoost;
+  bass.closest("label")!.hidden = !player.canMix;
+  showSleep();
+}
+sheets.filters.onOpen = showSettings;
+
+// Sleep timer -----------------------------------------------------------
+
+let sleepTimer = 0;
+let sleepUntil = 0;
+let sleepAtEnd = false;
+let sleepFade = 0;
+
+function setSleep(value: string): void {
+  clearTimeout(sleepTimer);
+  cancelAnimationFrame(sleepFade);
+  player.dimmed = 1;
+  sleepUntil = 0;
+  sleepAtEnd = value === "end";
+  if (value !== "off" && value !== "end") {
+    const ms = Number(value) * 60_000;
+    sleepUntil = Date.now() + ms;
+    sleepTimer = window.setTimeout(sleepNow, Math.max(0, ms - SLEEP_FADE * 1000));
+  }
+  showSleep();
+  if (value !== "off") toast(value === "end" ? "stopping after this track" : `stopping in ${value} min`);
+}
+
+/// Fade out over SLEEP_FADE seconds, then pause.
+function sleepNow(): void {
+  const stop = () => {
+    player.pause();
+    player.dimmed = 1;
+    sleepUntil = 0;
+    showSleep();
+  };
+  // Hidden tabs get no animation frames: there it stops at once.
+  if (document.hidden) {
+    stop();
+    return;
+  }
+  const t0 = performance.now();
+  const step = () => {
+    const k = (performance.now() - t0) / 1000 / SLEEP_FADE;
+    player.dimmed = 1 - k;
+    if (k < 1) sleepFade = requestAnimationFrame(step);
+    else stop();
+  };
+  sleepFade = requestAnimationFrame(step);
+}
+
+function showSleep(): void {
+  if (!sleepUntil) showSetting("sleep", sleepAtEnd ? "end" : "off");
+  $("sleep-left").textContent = sleepUntil
+    ? `${fmtTime(Math.max(0, sleepUntil - Date.now()) / 1000)} left`
+    : sleepAtEnd ? "after this track" : "";
+}
+
 // Feed modes --------------------------------------------------------------
 
 const modeChip = $("mode-chip");
+const modeTabs = $("mode-tabs");
 const MODE_NAMES = { classic: "for you", riddim: "riddim", fresh: "fresh", deep: "deep cuts" };
 
 function loadMode(): Mode {
@@ -577,31 +885,45 @@ function loadMode(): Mode {
 
 const modeName = (m: Mode) => (m.mode === "artist" ? `${m.name} radio` : MODE_NAMES[m.mode]);
 
-const MODE_ICONS = { riddim: "◆", fresh: "✦", deep: "◎" };
-
 function showMode(): void {
-  modeChip.hidden = mode.mode === "classic";
-  modeChip.querySelector(".chip-label")!.textContent = modeName(mode);
+  // A radio or the likes queue shows as a chip that leads back; the tabs make way.
+  const chip = mode.mode === "artist" || queue !== null;
+  modeChip.hidden = !chip;
+  modeTabs.hidden = chip;
+  for (const b of modeTabs.querySelectorAll<HTMLButtonElement>("button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.mode === mode.mode));
+  }
   const avatar = modeChip.querySelector<HTMLElement>(".chip-avatar")!;
+  const label = modeChip.querySelector(".chip-label")!;
+  if (queue) {
+    label.textContent = "your likes";
+    avatar.style.backgroundImage = "";
+    avatar.innerHTML = '<svg><use href="#i-heart"/></svg>';
+    return;
+  }
+  label.textContent = modeName(mode);
   const img = mode.mode === "artist" ? mode.img : null;
   avatar.style.backgroundImage = img ? `url("${img}")` : "";
-  avatar.textContent = img ? "" : mode.mode === "artist" ? mode.name[0]?.toUpperCase() ?? "" : mode.mode === "classic" ? "" : MODE_ICONS[mode.mode];
-  for (const input of filtersForm.querySelectorAll<HTMLInputElement>("input[name=mode]")) input.checked = input.value === mode.mode;
+  avatar.textContent = img || mode.mode !== "artist" ? "" : mode.name[0]?.toUpperCase() ?? "";
 }
 
 function setMode(m: Mode): void {
   radioDry = false;
   updateRadioEnd();
-  if (JSON.stringify(m) === JSON.stringify(mode)) return;
+  if (JSON.stringify(m) === JSON.stringify(mode) && !queue) return;
   mode = m;
+  queue = null;
   localStorage.setItem(MODE_KEY, JSON.stringify(mode));
   showMode();
-  closePanels();
+  Sheet.closeAll();
   toast(m.mode === "classic" ? "back to your feed" : `now playing: ${modeName(m)}`);
   refill();
 }
 
 modeChip.addEventListener("click", () => setMode({ mode: "classic" }));
+for (const b of modeTabs.querySelectorAll<HTMLButtonElement>("button")) {
+  b.addEventListener("click", () => setMode({ mode: b.dataset.mode as "classic" | "riddim" | "fresh" | "deep" }));
+}
 
 const station = new Station((m) => {
   if (!started) start();
@@ -627,28 +949,9 @@ function updateRadioEnd(): void {
   }
 }
 $("radio-end-feed").addEventListener("click", () => setMode({ mode: "classic" }));
-filtersForm.addEventListener("change", (e) => {
-  const input = e.target as HTMLInputElement;
-  if (input.name === "mode") setMode({ mode: input.value as "classic" | "riddim" | "fresh" | "deep" });
-  if (input.name === "visuals") setVisuals(input.value as VisualsSetting);
-});
 
-function setVisuals(v: VisualsSetting): void {
-  visual.visuals = v;
-  for (const input of filtersForm.querySelectorAll<HTMLInputElement>("input[name=visuals]")) input.checked = input.value === v;
-}
 setVisuals(visual.visuals);
 showMode();
-
-filtersBtn.addEventListener("click", () => togglePanel(filtersForm));
-filtersForm.addEventListener("submit", (e) => { e.preventDefault(); applyFilters(); });
-$("filters-clear").addEventListener("click", () => {
-  filtersForm.reset();
-  // reset() also clears the mode and visuals radios, which "clear" leaves alone.
-  showMode();
-  setVisuals(visual.visuals);
-  applyFilters();
-});
 showFilters();
 
 // Keyboard --------------------------------------------------------------
@@ -658,29 +961,33 @@ document.addEventListener("keydown", (e) => {
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === "Escape") {
     setZen(false);
-    closePanels();
-    hideHelp();
     station.close();
     return;
   }
-  if (k === "?") { helpEl.hidden ? showHelp() : hideHelp(); return; }
-  if (station.isOpen || !helpEl.hidden || !loginEl.hidden) return;
+  if (k === "?") { sheets.help.toggle(); return; }
+  if (station.isOpen || Sheet.current || !loginEl.hidden) return;
   if (!started) {
     if (k !== "Tab" && k !== "Shift") { e.preventDefault(); start(); }
     return;
   }
   const card = current();
   const a = player.audio;
-  if (k === "ArrowDown" || k === "j") { e.preventDefault(); go(active + 1); }
+  if (k === "ArrowDown" || k === "j" || k === "n") { e.preventDefault(); go(active + 1); }
   else if (k === "ArrowUp" || k === "k") { e.preventDefault(); go(active - 1); }
   else if (k === " ") { e.preventDefault(); player.toggle(); card?.flash(!a.paused); }
   else if (k === "ArrowRight") player.seek(a.currentTime + 10);
   else if (k === "ArrowLeft") player.seek(a.currentTime - 10);
+  else if (k === ".") player.seek(a.currentTime + 5);
+  else if (k === ",") player.seek(a.currentTime - 5);
+  else if (/^[0-9]$/.test(k) && a.duration) player.seek((Number(k) / 10) * a.duration);
   else if (k === "l" && card) setLike(card, !card.liked);
   else if (k === "f" && card) setFollow(card, !card.track.followed);
   else if (k === "r" && card) actions.radio(card);
   else if (k === "x" && card) dislike(card);
   else if (k === "s" && card) share(card);
+  else if (k === "w") wheelUp();
+  else if (k === "h") sheets.history.open();
+  else if (k === "c") sheets.filters.open();
   else if (k === "v") { setVisuals(visual.visuals === "liquid" ? "simple" : "liquid"); toast(`${visual.visuals} visuals`); }
   else if (k === "m") { setMuted(!player.muted); toast(player.muted ? "muted" : "sound on"); }
   else if (k === "+" || k === "=") { setVolume(player.volume + 0.1); toast(`volume ${Math.round(player.volume * 100)}%`); }
@@ -693,7 +1000,7 @@ function setZen(on: boolean): void {
   if (document.body.classList.contains("zen") === on) return;
   document.body.classList.toggle("zen", on);
   if (on) {
-    closePanels();
+    Sheet.closeAll();
     toast("zen · z or esc to leave");
   }
 }
@@ -713,9 +1020,10 @@ let signedInUser: User | null = null;
 
 // `resync`: already signed in, signing in again only to sync with pl8list.
 function showLogin({ resync = false } = {}): void {
-  closePanels();
+  Sheet.closeAll();
   $("bar").hidden = true;
   startEl.hidden = true;
+  upNext.hidden = true;
   loginEl.hidden = false;
   emailForm.hidden = false;
   codeForm.hidden = true;
@@ -782,14 +1090,6 @@ const deleteConfirm = $<HTMLInputElement>("delete-confirm");
 const syncStatus = $("sync-status");
 const disconnectBtn = $("disconnect-btn");
 
-function ago(ts: number): string {
-  const m = Math.round((Date.now() / 1000 - ts) / 60);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m} min ago`;
-  if (m < 48 * 60) return `${Math.round(m / 60)} h ago`;
-  return `${Math.round(m / 1440)} days ago`;
-}
-
 function showSync(s: Pl8Status | undefined): void {
   const connected = !!s?.connected;
   syncStatus.classList.toggle("on", connected);
@@ -800,11 +1100,10 @@ function showSync(s: Pl8Status | undefined): void {
   disconnectBtn.hidden = !connected;
 }
 
-accountBtn.addEventListener("click", async () => {
-  if (!togglePanel(accountPanel)) return;
+sheets.account.onOpen = async () => {
   deleteForm.hidden = true;
   try { showSync((await api.me()).pl8list); } catch { /* keep what is shown */ }
-});
+};
 
 $("sync-btn").addEventListener("click", async () => {
   try {
@@ -848,9 +1147,8 @@ deleteForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
     await api.postJSON("/account/delete", { confirm: deleteConfirm.value.trim() });
-    localStorage.removeItem(FILTERS_KEY);
-    localStorage.removeItem(MODE_KEY);
-    localStorage.removeItem(HINT_KEY);
+    for (const key of [FILTERS_KEY, MODE_KEY, HINT_KEY]) localStorage.removeItem(key);
+    heard.clear();
     location.reload();
   } catch (err) {
     toast((err as Error).message, 4000);
@@ -862,13 +1160,30 @@ function signedIn(user: User, pl8list?: Pl8Status): void {
   if (pl8list) showSync(pl8list);
   loginEl.hidden = true;
   $("bar").hidden = false;
-  accountBtn.textContent = `@${user.handle}`;
+  accountBtn.textContent = (user.name || user.handle)[0]?.toUpperCase() ?? "?";
+  accountBtn.style.backgroundColor = accentForName(user.handle);
+  accountBtn.title = `@${user.handle}`;
   $("account-handle").textContent = `@${user.handle}`;
   $("delete-handle").textContent = user.handle;
   // Typing the login code counts as a user gesture, so playback may start right away.
   if (navigator.userActivation?.hasBeenActive) start();
   else if (!started) startEl.hidden = false;
-  if (!cards.length) loadMore();
+  if (!cards.length) openLinkOrFeed();
+}
+
+/// `/?t=handle/slug` opens on that track; the feed carries on after it.
+async function openLinkOrFeed(): Promise<void> {
+  const link = new URLSearchParams(location.search).get("t")?.split("/");
+  if (link?.length === 2) {
+    history.replaceState(null, "", location.pathname);
+    try {
+      const { track } = await api.track(link[0], link[1]);
+      addCards([new Card(track, actions)]);
+    } catch (err) {
+      toast(`couldn't open that link: ${(err as Error).message}`, 4000);
+    }
+  }
+  loadMore();
 }
 
 api.me().then(

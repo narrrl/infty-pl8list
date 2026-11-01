@@ -81,7 +81,7 @@ export type Mode =
   | { mode: "classic" | "riddim" | "fresh" | "deep" }
   | { mode: "artist"; artist: string; name: string; img?: string | null };
 
-export type EventKind = "play" | "like" | "unlike" | "skip" | "complete" | "dislike";
+export type EventKind = "play" | "like" | "unlike" | "skip" | "complete" | "dislike" | "undislike";
 
 export class HttpError extends Error {
   constructor(message: string, readonly status: number) {
@@ -125,12 +125,17 @@ export function feed(filters: Filters, mode: Mode) {
 
 export const artist = (handle: string) => getJSON<ArtistInfo>("/local/artist?" + new URLSearchParams({ handle }));
 
+export const track = (handle: string, slug: string) =>
+  getJSON<{ track: Track }>("/local/track?" + new URLSearchParams({ handle, slug }));
+
 export const likes = () => getJSON<{ tracks: Track[] }>("/local/likes");
 
 export const me = () => getJSON<Me>("/local/me");
 
 export const PL8 = "https://pl8list.com";
 export const trackUrl = (t: Track) => `${PL8}/${t.handle}/${t.slug}`;
+/// A link that opens this app on the track.
+export const appTrackUrl = (t: Track) => `${location.origin}/?t=${encodeURIComponent(t.handle)}/${encodeURIComponent(t.slug)}`;
 export const artistUrl = (t: Track) => `${PL8}/${t.handle}`;
 // Images come through our server, so pl8list never sees the visitor's address.
 export const imgUrl = (id: string | null) => (id ? `/img/${encodeURIComponent(id)}` : null);

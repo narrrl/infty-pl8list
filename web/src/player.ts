@@ -3,17 +3,24 @@
 //
 // Where the browser allows it, both <audio> elements run through a Web Audio graph:
 // a gain per deck (for the crossfade) into one analyser (for the visuals), then a
-// master gain for the volume, so the visuals look the same at any volume. iOS is
+// master gain for the volume, so the visuals look the same at any volume. A
+// low shelf between the two boosts the bass when asked, also after the analyser,
+// so the visuals do not change with it. iOS is
 // left out: its element volume is read-only and Web Audio stops when the screen
 // locks, which would break lock-screen playback. There tracks switch with a cut.
 
 import type HlsType from "hls.js/light";
 import { type Track, streamUrl } from "./api";
 
-const CROSSFADE = 0.9; // seconds
+const CROSSFADE = 0.9; // seconds, unless set otherwise
 const PRELOAD_BUFFER = 6; // seconds buffered of the track after the current one
 const PLAY_BUFFER = 30;
 const VOLUME_KEY = "pl8inf.volume";
+const CROSSFADE_KEY = "pl8inf.crossfade";
+const BASS_KEY = "pl8inf.bass";
+const BASS_DB = 6; // gain of the bass boost's low shelf …
+const BASS_HZ = 120; // … below this
+const TAPE_STOP = 0.45; // s the rewind's tape stop takes
 
 type Hls = HlsType;
 type HlsClass = typeof HlsType;
@@ -47,9 +54,10 @@ export type PlayerEvent = "timeupdate" | "ended" | "play" | "pause" | "waiting" 
 
 const FORWARDED: PlayerEvent[] = ["timeupdate", "ended", "play", "pause", "waiting", "playing"];
 
-/// Equal-power fade of `param` from its current value to `to`. A fade can start
-/// while the previous one still runs (fast flicking), so it starts where that one is.
-function fade(param: AudioParam, to: number, at: number): void {
+/// Equal-power fade of `param` from its current value to `to` over `length`
+/// seconds. A fade can start while the previous one still runs (fast flicking), so
+/// it starts where that one is.
+function fade(param: AudioParam, to: number, at: number, length: number): void {
   const from = param.value;
   param.cancelScheduledValues(0);
   const up = to > from;
@@ -58,7 +66,7 @@ function fade(param: AudioParam, to: number, at: number): void {
     return up ? from + (to - from) * Math.sin(x) : to + (from - to) * Math.cos(x);
   });
   try {
-    param.setValueCurveAtTime(curve, at, CROSSFADE);
+    param.setValueCurveAtTime(curve, at, length);
   } catch {
     param.value = to;
   }
@@ -71,6 +79,12 @@ export class Player {
   private unlocking: Promise<void> | null = null;
   private fadeEnd = 0;
   private master: GainNode | null = null;
+  private shelf: BiquadFilterNode | null = null;
+  private bass = localStorage.getItem(BASS_KEY) === "1";
+  /// Seconds two tracks overlap; 0 cuts.
+  private fadeFor = Number(localStorage.getItem(CROSSFADE_KEY) ?? CROSSFADE);
+  /// The sleep timer's fade, 1 down to 0, on top of the volume.
+  private dim = 1;
   private vol = Number(localStorage.getItem(VOLUME_KEY) ?? 1);
   private listeners = new Map<PlayerEvent, Set<() => void>>();
   analyser: AnalyserNode | null = null;
@@ -89,6 +103,7 @@ export class Player {
     };
     this.decks = [deck(), deck()];
     if (!(this.vol >= 0 && this.vol <= 1)) this.vol = 1;
+    if (!(this.fadeFor >= 0 && this.fadeFor <= 12)) this.fadeFor = CROSSFADE;
     this.volume = this.vol;
     for (const d of this.decks) {
       for (const ev of FORWARDED) {
@@ -157,7 +172,11 @@ export class Player {
     analyser.fftSize = 2048;
     analyser.smoothingTimeConstant = 0.2; // features.ts smooths per feature; this only takes the edge off the FFT
     const master = ctx.createGain();
-    analyser.connect(master).connect(ctx.destination);
+    const shelf = ctx.createBiquadFilter();
+    shelf.type = "lowshelf";
+    shelf.frequency.value = BASS_HZ;
+    shelf.gain.value = this.bass ? BASS_DB : 0;
+    analyser.connect(shelf).connect(master).connect(ctx.destination);
     for (const d of this.decks) {
       d.el.volume = 1; // the master gain takes over
       const gain = ctx.createGain();
@@ -168,6 +187,7 @@ export class Player {
     this.ctx = ctx;
     this.analyser = analyser;
     this.master = master;
+    this.shelf = shelf;
     this.volume = this.vol;
   }
 
@@ -186,19 +206,20 @@ export class Player {
     } else {
       this.load(to, track, PLAY_BUFFER);
     }
-    const crossfade = this.mixing && !document.hidden && !from.el.paused && from.track !== null;
+    const crossfade = this.fadeFor > 0 && this.mixing && !document.hidden && !from.el.paused && from.track !== null;
     this.cur = toIdx;
     to.wantPlay = true;
     if (this.ctx?.state === "suspended") this.ctx.resume().catch(() => {});
     if (crossfade && to.gain && from.gain) {
       const t = this.ctx!.currentTime;
-      fade(to.gain.gain, 1, t);
-      fade(from.gain.gain, 0, t);
-      this.fadeEnd = performance.now() + CROSSFADE * 1000;
+      const length = this.fadeFor;
+      fade(to.gain.gain, 1, t, length);
+      fade(from.gain.gain, 0, t, length);
+      this.fadeEnd = performance.now() + length * 1000;
       const gen = from.gen;
       setTimeout(() => {
         if (from.gen === gen && from !== this.decks[this.cur]) this.unload(from);
-      }, CROSSFADE * 1000 + 50);
+      }, length * 1000 + 50);
     } else {
       if (to.gain) {
         to.gain.gain.cancelScheduledValues(0);
@@ -280,6 +301,32 @@ export class Player {
     this.audio.pause();
   }
 
+  /// The soundsystem rewind: the record is pulled back, the music slows down and
+  /// drops in pitch, and the tune starts again from the top.
+  async wheelUp(): Promise<void> {
+    const a = this.audio;
+    if (a.paused) {
+      this.seek(0);
+      this.resume();
+      return;
+    }
+    const pitch = a.preservesPitch;
+    a.preservesPitch = false;
+    const t0 = performance.now();
+    await new Promise<void>((done) => {
+      const step = () => {
+        const k = Math.min(1, (performance.now() - t0) / 1000 / TAPE_STOP);
+        a.playbackRate = Math.max(0.1, 1 - 0.9 * k * k);
+        if (k < 1) requestAnimationFrame(step);
+        else done();
+      };
+      requestAnimationFrame(step);
+    });
+    a.playbackRate = 1;
+    a.preservesPitch = pitch;
+    this.seek(0);
+  }
+
   seek(seconds: number): void {
     const a = this.audio;
     a.currentTime = Math.max(0, Math.min(a.duration || 0, seconds));
@@ -302,8 +349,37 @@ export class Player {
   set volume(v: number) {
     this.vol = Math.max(0, Math.min(1, v));
     localStorage.setItem(VOLUME_KEY, String(this.vol));
-    const out = this.vol * this.vol;
+    this.applyVolume();
+  }
+
+  private applyVolume(): void {
+    const out = this.vol * this.vol * this.dim;
     if (this.master) this.master.gain.value = out;
     else for (const d of this.decks) d.el.volume = out;
+  }
+
+  /// The sleep timer's fade, 0..1. Where the volume is read-only (iOS) it does nothing.
+  set dimmed(k: number) {
+    this.dim = Math.max(0, Math.min(1, k));
+    this.applyVolume();
+  }
+
+  get crossfade(): number {
+    return this.fadeFor;
+  }
+
+  set crossfade(s: number) {
+    this.fadeFor = s;
+    localStorage.setItem(CROSSFADE_KEY, String(s));
+  }
+
+  get bassBoost(): boolean {
+    return this.bass;
+  }
+
+  set bassBoost(on: boolean) {
+    this.bass = on;
+    localStorage.setItem(BASS_KEY, on ? "1" : "0");
+    if (this.shelf && this.ctx) this.shelf.gain.setTargetAtTime(on ? BASS_DB : 0, this.ctx.currentTime, 0.05);
   }
 }

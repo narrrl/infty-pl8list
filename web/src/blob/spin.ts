@@ -49,6 +49,11 @@ export class Spin {
     this.toMatrix();
   }
 
+  /// Throw it round: add `v` (rad/s, a rotation vector in view space) to its speed.
+  fling(v: [number, number, number]): void {
+    for (let i = 0; i < 3; i++) this.vel[i] += v[i];
+  }
+
   /// Advance by `dt` seconds. True while it still moves.
   step(dt: number): boolean {
     if (this.held) return true;

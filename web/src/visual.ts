@@ -82,6 +82,12 @@ export class Visualizer {
     return this.blob?.lost ? null : this.blob;
   }
 
+  /// Spin the drop backwards, hard: the rewind.
+  wheelUp(): void {
+    this.blob?.spin.fling([0, -26, 0]);
+    this.start();
+  }
+
   /// A play/pause from a tap was taken back by the second tap of a double-tap.
   cancelFlash(): void {
     this.blob?.settleIcon();
@@ -227,7 +233,7 @@ export class Visualizer {
     if (!card) return;
     const a = this.player.audio;
     const progress = a.duration ? a.currentTime / a.duration : 0;
-    card.drawWave(progress);
+    card.drawWave(progress, false, a.duration ? bufferedTo(a) / a.duration : 0);
     const playing = !a.paused;
     const an = this.player.analyser;
     const mixed = !!an && this.player.mixing;
@@ -259,4 +265,13 @@ export class Visualizer {
       }, 1000 / IDLE_FPS);
     }
   };
+}
+
+/// How far the audio is loaded from where it plays now, in seconds.
+function bufferedTo(a: HTMLMediaElement): number {
+  const b = a.buffered;
+  for (let i = 0; i < b.length; i++) {
+    if (b.start(i) <= a.currentTime + 0.5 && b.end(i) >= a.currentTime) return b.end(i);
+  }
+  return a.currentTime;
 }
