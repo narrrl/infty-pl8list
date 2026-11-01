@@ -1,8 +1,11 @@
-# pl8list ∞
+# pl8list rewind
 
 An endless, TikTok-style scroll through [pl8list](https://pl8list.com), with its own
 recommendation algorithm that learns from what you like, finish and skip. Sign in with
 your pl8list account; each user gets their own feed and taste profile.
+
+The name is the soundsystem rewind: when a dance loves a tune, the selector pulls the
+plate back and runs it again. Here, what you like comes back.
 
 Not affiliated with pl8list.
 

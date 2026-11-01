@@ -66,8 +66,9 @@ button {
   background: linear-gradient(#000c, #0000);
 }
 
-.logo { font-weight: 600; margin-right: auto; }
-.logo b { color: var(--accent); }
+.logo { font-weight: 600; margin-right: auto; display: inline-flex; align-items: center; gap: 0.4em; white-space: nowrap; }
+.logo b { color: var(--accent); font-weight: 700; }
+.logo svg { width: 1.3em; height: 1.3em; color: var(--accent); flex: none; }
 #stats { color: var(--muted); font-size: 0.8rem; }
 #help-btn { width: 2.2em; padding: 0.35em 0; }
 #volume { display: flex; align-items: center; gap: 0.3rem; }
@@ -682,8 +683,11 @@ button.primary svg { width: 1em; height: 1em; }
   flex-direction: column;
   gap: 0.9rem;
 }
-.login-box h1 { margin: 0; font-size: 2.4rem; }
+.login-box h1 { margin: 0; font-size: 2.4rem; display: flex; align-items: center; gap: 0.3em; }
 .login-box h1 b { color: var(--accent); }
+/* A wheel up: the plate is pulled back once, then rests. */
+.login-mark { width: 1.2em; height: 1.2em; color: var(--accent); flex: none; animation: wheel-up 1.1s 0.3s cubic-bezier(0.3, 0, 0.2, 1) both; }
+@keyframes wheel-up { from { transform: rotate(0); } to { transform: rotate(-720deg); } }
 .tagline { margin: 0 0 0.8rem; color: var(--muted); }
 .login-box form { display: flex; flex-direction: column; gap: 0.6rem; }
 .login-box label { color: var(--muted); font-size: 0.9rem; }
@@ -719,6 +723,7 @@ button.primary svg { width: 1em; height: 1em; }
   #station { place-items: end stretch; padding: 0; }
   .station-box { width: 100%; border-radius: var(--radius-l) var(--radius-l) 0 0; padding-bottom: max(1.4rem, env(safe-area-inset-bottom)); }
   #mode-chip { max-width: 9rem; }
+  .logo-pl8 { display: none; }
   /* A station chip says more than the logo; there is no room for both. */
   #bar:has(#mode-chip:not([hidden])) .logo { display: none; }
   #likes { width: auto; }

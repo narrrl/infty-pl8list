@@ -7,8 +7,8 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
 const OFFLINE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>pl8list ∞</title></head>
-<body bgcolor="#000000" text="#f2f2f2"><p>You are offline. pl8list ∞ needs a connection to play.</p></body></html>`;
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>pl8list rewind</title></head>
+<body bgcolor="#000000" text="#f2f2f2"><p>You are offline. pl8list rewind needs a connection to play.</p></body></html>`;
 
 self.addEventListener("fetch", (e) => {
   if (e.request.mode !== "navigate") return;

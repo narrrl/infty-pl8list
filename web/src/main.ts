@@ -92,7 +92,7 @@ async function loadMore(): Promise<void> {
         updateRadioEnd();
       } else setStatus(mode.mode !== "classic" || Object.keys(filters).length
         ? "nothing new matches this feed and your filters right now. loosen them, or check back in a bit."
-        : "nothing new right now, the crawler is still digging. try again in a bit.");
+        : "the plate's empty for now, the crawler is still digging. try again in a bit.");
       setTimeout(() => { if (gen === feedGen) loading = false; }, 8000);
       return;
     }
@@ -296,7 +296,7 @@ function updateMediaSession(track: Track): void {
   navigator.mediaSession.metadata = new MediaMetadata({
     title: cleanTitle(track.title),
     artist: track.artist_name,
-    album: "pl8list ∞",
+    album: "pl8list rewind",
     artwork,
   });
 }

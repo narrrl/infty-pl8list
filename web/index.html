@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>pl8list ∞</title>
-  <meta name="description" content="Endless scroll through pl8list, tuned to what you like.">
+  <title>pl8list rewind</title>
+  <meta name="description" content="Endless riddim from pl8list. Like it, and it comes back.">
   <meta name="theme-color" content="#000000">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="pl8 ∞">
+  <meta name="apple-mobile-web-app-title" content="rewind">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -28,11 +28,12 @@
     <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
     <symbol id="i-vol" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4.5v15L8 15H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></symbol>
     <symbol id="i-mute" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4.5v15L8 15H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></symbol>
+    <symbol id="i-rewind" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M14.27 7.54A5 5 0 1 0 16.76 13.55"/><path fill="currentColor" d="M17.66 10.79l1.13 4.26-4.56-1.48z"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></symbol>
     <symbol id="i-pause" viewBox="0 0 24 24"><path fill="currentColor" d="M7 4.5h3.5v15H7zM13.5 4.5H17v15h-3.5z"/></symbol>
   </svg>
 
   <header id="bar" hidden>
-    <span class="logo">pl8list <b>∞</b></span>
+    <span class="logo"><svg aria-hidden="true"><use href="#i-rewind"/></svg><span class="logo-pl8">pl8list </span><b>rewind</b></span>
     <button id="mode-chip" type="button" title="back to your feed" hidden>
       <span class="chip-avatar" aria-hidden="true"></span><span class="chip-label"></span><span aria-hidden="true">×</span>
     </button>
@@ -49,8 +50,8 @@
 
   <div id="login" hidden>
     <div class="login-box">
-      <h1>pl8list <b>∞</b></h1>
-      <p class="tagline">endless scroll through pl8list, tuned to what you like</p>
+      <h1><svg class="login-mark" aria-hidden="true"><use href="#i-rewind"/></svg>pl8list <b>rewind</b></h1>
+      <p class="tagline">endless riddim from pl8list. like it, and it comes back.</p>
       <form id="email-form">
         <label for="email">sign in with your pl8list email</label>
         <input id="email" type="email" name="email" autocomplete="email" required placeholder="you@example.com">

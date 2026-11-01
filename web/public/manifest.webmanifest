@@ -1,7 +1,7 @@
 {
-  "name": "pl8list ∞",
-  "short_name": "pl8 ∞",
-  "description": "Endless scroll through pl8list, tuned to what you like.",
+  "name": "pl8list rewind",
+  "short_name": "rewind",
+  "description": "Endless riddim from pl8list. Like it, and it comes back.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
