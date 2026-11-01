@@ -85,7 +85,10 @@ class Crawler:
 
     def on_login(self, user_id, session):
         """Crawl the user's personal feed (artists in their pl8list library) with their session."""
+        old = self.feed_sessions.get(user_id)
         self.feed_sessions[user_id] = session
+        if old:
+            Client(old).logout()
         self.push(P_FEEDBACK, "feed", (user_id, 1))
 
     # Main loop -------------------------------------------------------------
@@ -171,14 +174,19 @@ class Crawler:
         session = self.feed_sessions.get(user_id)
         if not session:
             return
-        d = Client(session).feed(page) or {}
-        self.db.upsert_tracks([normalize_item(i) for i in d.get("tracks") or []])
-        for i in d.get("tracks") or []:
-            self.push(P_ARTIST_FIRST, "artist", i["track"]["user"]["handle"])
-        if page < (d.get("totalPages") or 0):
-            self.push(P_FEEDBACK, "feed", (user_id, page + 1))
-        else:
-            self.feed_sessions.pop(user_id, None)
+        more = False
+        try:
+            d = Client(session).feed(page) or {}
+            self.db.upsert_tracks([normalize_item(i) for i in d.get("tracks") or []])
+            for i in d.get("tracks") or []:
+                self.push(P_ARTIST_FIRST, "artist", i["track"]["user"]["handle"])
+            more = page < (d.get("totalPages") or 0)
+        finally:
+            # Done or failed: forget the session here and end it at pl8list.
+            if more:
+                self.push(P_FEEDBACK, "feed", (user_id, page + 1))
+            elif self.feed_sessions.pop(user_id, None):
+                Client(session).logout()
 
     def do_artist_refresh(self, handle):
         """Newest uploads are on page 1, so re-reading it catches new tracks."""

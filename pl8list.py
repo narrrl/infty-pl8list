@@ -100,6 +100,13 @@ class Client:
         return self.get_json("/search/users", {"q": q, "page": page, "pagination": "true"},
                              route="routes/search.users")
 
+    def logout(self):
+        """End this session at pl8list. Errors are ignored: we drop the session either way."""
+        try:
+            self.request("/logout", {"_data": "routes/logout"}).close()
+        except OSError:
+            pass
+
 
 class LoginError(Exception):
     pass
@@ -181,6 +188,8 @@ class LoginFlow:
         if not user:
             raise LoginError("login failed, try again")
         if not user.get("handle"):
+            Client(self.session).logout()
+            self.session = None
             raise LoginError("finish setting up your account on pl8list.com first (choose a handle)")
         return user
 
