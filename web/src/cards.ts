@@ -2,7 +2,7 @@
 // and dropped again once it is far behind, so a long session stays light.
 
 import { type Track, artistImg, artistUrl, trackUrl } from "./api";
-import { accentFor, accentForName } from "./color";
+import { accentFor, accentForName, backdrop } from "./color";
 
 export interface CardActions {
   like(card: Card): void;
@@ -36,6 +36,8 @@ export class Card {
   private drawn = "";
   private dragging = false;
   private accent: string | null = null;
+  /// The blurred background, once made.
+  private backdrop: string | null = null;
 
   /// `station`: the artist radio this card was picked for, if any.
   constructor(
@@ -66,7 +68,17 @@ export class Card {
     const $ = <T extends HTMLElement>(sel: string) => el.querySelector(sel) as T;
     const img = artistImg(t);
     if (img) {
-      $(".bg").style.backgroundImage = `url("${img}")`;
+      const bg = $(".bg");
+      if (this.backdrop) this.showBackdrop(bg);
+      else {
+        // The plain image under a CSS blur until the blurred one is ready.
+        bg.style.backgroundImage = `url("${img}")`;
+        backdrop(img).then((b) => {
+          this.backdrop = b;
+          const bg = this.el?.querySelector<HTMLElement>(".bg");
+          if (b && bg) this.showBackdrop(bg);
+        }, () => {});
+      }
       $(".art").style.backgroundImage = `url("${img}")`;
       $(".artist-avatar").style.backgroundImage = `url("${img}")`;
       if (this.accent) el.style.setProperty("--card-accent", this.accent);
@@ -127,6 +139,11 @@ export class Card {
     this.showFollow();
     requestAnimationFrame(() => this.drawWave(this.lastProgress, true));
     return el;
+  }
+
+  private showBackdrop(bg: HTMLElement): void {
+    bg.style.backgroundImage = `url("${this.backdrop}")`;
+    bg.classList.add("baked");
   }
 
   /// Where a radio track comes from, e.g. "Lower radio · via Motus".

@@ -48,6 +48,57 @@ async function compute(src: string): Promise<string | null> {
   return `hsl(${hue.toFixed(0)} ${s.toFixed(0)}% 62%)`;
 }
 
+const BACKDROP = 64; // px square; it is shown blurred, so this is plenty
+const BLUR = 2; // px each side, per box blur pass at that size
+const DIM = 0.45;
+const SATURATE = 1.3;
+
+/// The card's background from the artist image, as a data URL: cropped square,
+/// blurred and darkened here, once, as `.bg`'s CSS filter would do on every frame.
+export async function backdrop(src: string): Promise<string | null> {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  const c = document.createElement("canvas");
+  c.width = c.height = BACKDROP;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  const side = Math.min(img.naturalWidth, img.naturalHeight);
+  ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, BACKDROP, BACKDROP);
+  const data = ctx.getImageData(0, 0, BACKDROP, BACKDROP);
+  const px = data.data;
+  // Three box passes each way come close to a gaussian.
+  for (let pass = 0; pass < 3; pass++) {
+    box(px, false);
+    box(px, true);
+  }
+  for (let i = 0; i < px.length; i += 4) {
+    const l = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+    for (let ch = 0; ch < 3; ch++) px[i + ch] = (l + (px[i + ch] - l) * SATURATE) * DIM;
+    px[i + 3] = 255;
+  }
+  ctx.putImageData(data, 0, 0);
+  return c.toDataURL();
+}
+
+/// One box blur pass over the backdrop's pixels, along rows or columns; the
+/// edges repeat outwards.
+function box(px: Uint8ClampedArray, columns: boolean): void {
+  const src = px.slice();
+  const n = BACKDROP;
+  const along = columns ? n * 4 : 4;
+  for (let line = 0; line < n; line++) {
+    const start = (columns ? line : line * n) * 4;
+    for (let i = 0; i < n; i++) {
+      for (let ch = 0; ch < 3; ch++) {
+        let sum = 0;
+        for (let k = -BLUR; k <= BLUR; k++) sum += src[start + Math.min(n - 1, Math.max(0, i + k)) * along + ch];
+        px[start + i * along + ch] = sum / (2 * BLUR + 1);
+      }
+    }
+  }
+}
+
 function hsl(r: number, g: number, b: number): [number, number, number] {
   r /= 255;
   g /= 255;

@@ -44,6 +44,9 @@ interface Dressed {
   waveCanvas: HTMLCanvasElement;
   title: Plate;
   wave: Plate;
+  /// Placed as the layout now is; cleared when something may have moved, as
+  /// reading the layout on every frame would force it to be worked out each time.
+  placed: boolean;
   layoutKey: string;
   titleKey: string;
   waveKey: string;
@@ -80,13 +83,18 @@ export class Visualizer {
   /// Undefined until first needed; null where WebGL2 failed.
   private chrome: Chrome | null | undefined;
   private dressed: Dressed | null = null;
-  private logo: { el: HTMLElement; canvas: HTMLCanvasElement; plate: Plate; key: string } | null = null;
+  /// `measured` as for `Dressed.placed`.
+  private logo: { el: HTMLElement; canvas: HTMLCanvasElement; plate: Plate; key: string; measured: boolean; observer: ResizeObserver } | null = null;
   /// Where the light comes from, and where the pointer wants it.
   private tilt: [number, number] = [...REST_TILT];
   private aim: [number, number] = [...REST_TILT];
   private chromeAt = 0;
   private chromeDirty = true;
   private kickDrawn = 0;
+  /// The playing card's art and glow, and the `--energy` they were last given.
+  private energized: { el: HTMLElement; targets: HTMLElement[]; value: string } | null = null;
+  /// Frames and chrome draws counted for `?debug=drop`, shown once a second.
+  private stats = { from: 0, frames: 0, worst: 0, chrome: 0 };
 
   constructor(
     private player: Player,
@@ -183,6 +191,7 @@ export class Visualizer {
       waveCanvas,
       title: chrome.plate("text"),
       wave: chrome.plate("wave"),
+      placed: false,
       layoutKey: "",
       titleKey: "",
       waveKey: "",
@@ -196,6 +205,7 @@ export class Visualizer {
       buffered: 0,
       // Text loading around the title moves it; the layer follows.
       observer: new ResizeObserver(() => {
+        d.placed = false;
         d.layoutKey = "";
         this.chromeDirty = true;
         this.start();
@@ -248,6 +258,7 @@ export class Visualizer {
     for (const el of document.querySelectorAll(".chromed")) el.classList.remove("chromed");
     if (this.logo) {
       this.logo.canvas.remove();
+      this.logo.observer.disconnect();
       this.chrome?.drop(this.logo.plate);
     }
     this.logo = null;
@@ -255,8 +266,14 @@ export class Visualizer {
 
   /// Fonts arrived: shapes are drawn again on the next frame.
   private redress(): void {
-    if (this.dressed) this.dressed.layoutKey = this.dressed.titleKey = this.dressed.waveKey = "";
-    if (this.logo) this.logo.key = "";
+    if (this.dressed) {
+      this.dressed.placed = false;
+      this.dressed.layoutKey = this.dressed.titleKey = this.dressed.waveKey = "";
+    }
+    if (this.logo) {
+      this.logo.key = "";
+      this.logo.measured = false;
+    }
     this.chromeDirty = true;
     this.start();
   }
@@ -265,12 +282,25 @@ export class Visualizer {
     const el = document.querySelector<HTMLElement>(".logo b");
     if (!el) return;
     el.style.setProperty("--pad", `${LOGO_PAD}px`);
-    this.logo = { el, canvas: plateCanvas(el), plate: chrome.plate("text"), key: "" };
+    const logo = {
+      el,
+      canvas: plateCanvas(el),
+      plate: chrome.plate("text"),
+      key: "",
+      measured: false,
+      observer: new ResizeObserver(() => {
+        logo.measured = false;
+        this.redraw();
+      }),
+    };
+    logo.observer.observe(el);
+    this.logo = logo;
   }
 
   /// Size and place the layer over the title and the waveform, and draw their
   /// shapes again where their size or text changed.
   private reshape(chrome: Chrome, d: Dressed): boolean {
+    if (d.placed) return true;
     const el = d.titleEl, c = d.waveCanvas, wrap = c.parentElement!;
     if (!el.clientWidth || !c.clientWidth) return false;
     // Layout offsets, not client rects: the card scales as it leaves.
@@ -319,6 +349,7 @@ export class Visualizer {
     // The title's plate starts PAD up and left of it, as the layer does.
     chrome.place(d.title, el.offsetLeft, 0);
     chrome.place(d.wave, wrap.offsetLeft + c.offsetLeft + PAD, waveTop - top);
+    d.placed = true;
     return true;
   }
 
@@ -331,10 +362,12 @@ export class Visualizer {
   /// Light the logo once, whenever its size changed.
   private shineLogo(chrome: Chrome): void {
     const logo = this.logo;
-    if (!logo) return;
+    if (!logo || logo.measured) return;
     const el = logo.el;
     const key = `${el.clientWidth}x${el.clientHeight}`;
-    if (key === logo.key || !el.clientWidth) return;
+    if (!el.clientWidth) return;
+    logo.measured = true;
+    if (key === logo.key) return;
     logo.key = key;
     chrome.shape(logo.plate, el.clientWidth + 2 * LOGO_PAD, el.clientHeight + 2 * LOGO_PAD, 1, 0, 1.5, (ctx) => textMask(el, LOGO_PAD, ctx)).then((ok) => {
       if (!ok || this.logo !== logo) return;
@@ -365,6 +398,7 @@ export class Visualizer {
     if (!want || now - this.chromeAt < 1000 / (this.touch ? TOUCH_CHROME_FPS : CHROME_FPS)) return want;
     this.chromeAt = now;
     this.chromeDirty = false;
+    this.stats.chrome++;
     this.kickDrawn = kick;
     this.shineLogo(chrome);
     if (!d || !this.reshape(chrome, d)) return want;
@@ -382,7 +416,7 @@ export class Visualizer {
   attach(card: Card | null, again = false): void {
     if (this.card === card && !again) return;
     if (this.card && this.card !== card) {
-      this.card.el?.style.setProperty("--energy", "0");
+      this.energize(null, "");
       this.card.el?.classList.remove("liquid", "turning");
       this.grab = null;
     }
@@ -407,6 +441,21 @@ export class Visualizer {
       });
     }
     this.start();
+  }
+
+  /// Set `--energy` on the art and the glow only: set on the card, everything in
+  /// it would be styled again on every frame.
+  private energize(el: HTMLElement | null, value: string): void {
+    let e = this.energized;
+    if (e && e.el !== el) {
+      for (const t of e.targets) t.style.removeProperty("--energy");
+      e = this.energized = null;
+    }
+    if (!el) return;
+    e ??= this.energized = { el, targets: [...el.querySelectorAll<HTMLElement>(".art, .glow")], value: "" };
+    if (value === e.value) return;
+    e.value = value;
+    for (const t of e.targets) t.style.setProperty("--energy", value);
   }
 
   start(): void {
@@ -533,17 +582,26 @@ export class Visualizer {
         ? this.features.fromAnalyser(an, now / 1000, dt)
         : this.features.fromLoudness(card.loudnessAt(progress), now / 1000, dt);
     this.debug?.(f);
-    this.dropDebug?.([
-      `setting ${this.setting} · reduced motion ${this.reduced.matches} · touch ${this.touch} · mixing ${mixed}`,
-      `blob ${this.blob === undefined ? "not asked" : this.blob === null ? `failed: ${LiquidBlob.failure}` : "made"} · card liquid ${!!card.el?.classList.contains("liquid")}`,
-      this.blob?.describe() ?? "",
-    ].join("\n"));
+    const st = this.stats;
+    st.frames++;
+    st.worst = Math.max(st.worst, dt);
+    // Once a second: the readout itself asks the GPU things that stall it.
+    if (this.dropDebug && now - st.from >= 1000) {
+      const secs = (now - st.from) / 1000;
+      this.dropDebug([
+        `fps ${(st.frames / secs).toFixed(0)} · worst ${(st.worst * 1000).toFixed(0)} ms · chrome ${(st.chrome / secs).toFixed(0)}/s`,
+        `setting ${this.setting} · reduced motion ${this.reduced.matches} · touch ${this.touch} · mixing ${mixed}`,
+        `blob ${this.blob === undefined ? "not asked" : this.blob === null ? `failed: ${LiquidBlob.failure}` : "made"} · card liquid ${!!card.el?.classList.contains("liquid")}`,
+        this.blob?.describe() ?? "",
+      ].join("\n"));
+    }
+    if (now - st.from >= 1000) this.stats = { from: now, frames: 0, worst: 0, chrome: 0 };
     let busy = this.shine(now, dt, f.kick) || playing;
     const liquid = !!this.blob && !!card.el?.classList.contains("liquid");
     if (!this.reduced.matches) {
       // The kick drives the pulse; without an analyser the kicks come from the waveform.
       const energy = Math.min(1, mixed ? 0.65 * f.kick + 0.35 * f.low : 0.5 * f.low + 0.4 * f.kick);
-      card.el?.style.setProperty("--energy", energy.toFixed(3));
+      this.energize(card.el, energy.toFixed(2));
       busy ||= energy > 0.01;
       if (liquid) {
         const buffering = !!card.el?.classList.contains("buffering");

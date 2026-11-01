@@ -397,6 +397,9 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   background: #111 center / cover no-repeat;
   filter: blur(40px) brightness(0.45) saturate(1.3);
 }
+/* Already blurred and darkened (color.ts): a CSS blur over the whole screen would
+   be worked out again whenever anything on top of it moves. */
+.bg.baked { filter: none; }
 
 .glow {
   position: absolute;
@@ -404,6 +407,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   pointer-events: none;
   background: radial-gradient(55% 40% at 50% 40%, color-mix(in oklab, var(--card-accent) 55%, transparent), transparent 70%);
   opacity: calc(0.18 + var(--energy) * 0.55);
+  will-change: opacity;
 }
 /* Grain over the card's background only: content and actions sit above it. */
 .card::after {
@@ -467,8 +471,12 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 .card.liquid .art::before {
   content: "";
   position: absolute;
-  inset: calc(-50% - var(--energy) * 15%);
-  background: radial-gradient(closest-side, color-mix(in oklab, var(--card-accent) calc(28% + var(--energy) * 55%), transparent), transparent);
+  inset: -65%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--card-accent) 83%, transparent), transparent);
+  /* Pulses through transform and opacity only, so it never has to be painted again. */
+  transform: scale(calc(0.87 + var(--energy) * 0.13));
+  opacity: calc(0.34 + var(--energy) * 0.66);
+  will-change: transform, opacity;
   pointer-events: none;
 }
 .card.liquid .content > :not(.art, .chrome-layer) { position: relative; z-index: 1; }
@@ -666,8 +674,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.16);
   transition: background var(--fast), transform var(--fast);
 }
 .act:hover .ring { background: rgba(255, 255, 255, 0.2); }
@@ -766,6 +773,12 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   transition: opacity var(--fast);
 }
 #up-next:hover { opacity: 1; }
+/* Phones redo a backdrop blur on every frame the card under it pulses: a denser
+   fill instead. */
+@media (pointer: coarse) {
+  #mode-tabs { backdrop-filter: none; background: rgba(28, 28, 32, 0.72); }
+  #up-next { backdrop-filter: none; background: #000b; }
+}
 .up-next-avatar {
   flex: none;
   width: 2rem;

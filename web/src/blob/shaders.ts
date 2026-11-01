@@ -261,30 +261,34 @@ void main() {
   // The icon sits on a disc of frosted glass, painted onto the surface so it turns
   // with the drop: the artwork behind it blurred and dimmed, lit along its rim. A
   // ring round it shows how much has played, or runs while the track loads.
-  vec2 ip = vObj.xy;
-  float front = smoothstep(0.35, 0.6, vObj.z) * uMorph;
-  float show = max(uIconA, uBusy) * front;
-  float disc = length(ip) - 0.36;
-  float da = fwidth(disc);
-  float inDisc = 1.0 - smoothstep(-da, da, disc);
-  vec3 frost = textureLod(uArt, 0.5 + vec2(ip.x, -ip.y) * 0.48, 5.0).rgb * 0.3 + uAccent * 0.03;
-  frost += 0.35 * (1.0 - smoothstep(0.0, 0.025, abs(disc + 0.01))) * smoothstep(-0.3, 0.35, ip.y);
-  col = mix(col, frost, show * inDisc);
+  // Skipped while nothing of it shows; the test is on uniforms only, so every
+  // pixel takes the same branch and fwidth() inside it stays sound.
+  if (max(uIconA, uBusy) > 0.002) {
+    vec2 ip = vObj.xy;
+    float front = smoothstep(0.35, 0.6, vObj.z) * uMorph;
+    float show = max(uIconA, uBusy) * front;
+    float disc = length(ip) - 0.36;
+    float da = fwidth(disc);
+    float inDisc = 1.0 - smoothstep(-da, da, disc);
+    vec3 frost = textureLod(uArt, 0.5 + vec2(ip.x, -ip.y) * 0.48, 5.0).rgb * 0.3 + uAccent * 0.03;
+    frost += 0.35 * (1.0 - smoothstep(0.0, 0.025, abs(disc + 0.01))) * smoothstep(-0.3, 0.35, ip.y);
+    col = mix(col, frost, show * inDisc);
 
-  float ringD = abs(length(ip) - 0.41) - 0.011;
-  float ra = fwidth(ringD);
-  float ring = (1.0 - smoothstep(-ra, ra, ringD)) * front;
-  float turn = fract(atan(ip.x, ip.y) / 6.2831853 + 1.0); // 0 at the top, clockwise
-  float played = 1.0 - smoothstep(uProgress - 0.003, uProgress + 0.003, turn);
-  float seg = fract(turn - uClock * 0.9);
-  float arc = smoothstep(0.0, 0.04, seg) * (1.0 - smoothstep(0.18, 0.28, seg));
-  col = mix(col, mix(vec3(0.32), uAccent, played), ring * uIconA * (1.0 - uBusy));
-  col = mix(col, mix(vec3(0.25), vec3(0.96), arc), ring * uBusy);
+    float ringD = abs(length(ip) - 0.41) - 0.011;
+    float ra = fwidth(ringD);
+    float ring = (1.0 - smoothstep(-ra, ra, ringD)) * front;
+    float turn = fract(atan(ip.x, ip.y) / 6.2831853 + 1.0); // 0 at the top, clockwise
+    float played = 1.0 - smoothstep(uProgress - 0.003, uProgress + 0.003, turn);
+    float seg = fract(turn - uClock * 0.9);
+    float arc = smoothstep(0.0, 0.04, seg) * (1.0 - smoothstep(0.18, 0.28, seg));
+    col = mix(col, mix(vec3(0.32), uAccent, played), ring * uIconA * (1.0 - uBusy));
+    col = mix(col, mix(vec3(0.25), vec3(0.96), arc), ring * uBusy);
 
-  float dIcon = sdPlayPause(ip, uIcon);
-  float ia = fwidth(dIcon);
-  float ink = 1.0 - smoothstep(-ia, ia, dIcon);
-  col = mix(col, vec3(0.96), front * uIconA * (1.0 - uBusy) * ink);
+    float dIcon = sdPlayPause(ip, uIcon);
+    float ia = fwidth(dIcon);
+    float ink = 1.0 - smoothstep(-ia, ia, dIcon);
+    col = mix(col, vec3(0.96), front * uIconA * (1.0 - uBusy) * ink);
+  }
   // The very edge fades out, so the drop sits in the page instead of on it.
   float a = 1.0 - 0.9 * smoothstep(0.8, 1.0, fres) * uMorph;
   outColor = vec4(col * a, a);

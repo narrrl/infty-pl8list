@@ -307,12 +307,13 @@ export class LiquidBlob {
     return this.morph < 1 || moving || spinning || showing || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
   }
 
-  /// Canvas pixels per CSS pixel at full quality. Phones stay at 1 for the battery.
+  /// Canvas pixels per CSS pixel at full quality. Phones stay at 1.5 at most, for
+  /// the battery; the quality steps take that down on phones that cannot keep up.
   /// Low-density desktop screens render at 2 and scale down, which smooths the
   /// edges and the icon that would otherwise fall on too few pixels.
   private density(): number {
     const dpr = devicePixelRatio || 1;
-    if (this.touch) return Math.min(dpr, 1);
+    if (this.touch) return Math.min(dpr, 1.5);
     return dpr < 1.5 ? 2 : 1.5;
   }
 
