@@ -61,9 +61,14 @@ pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Qu
         Ok(u) => u.clone(),
         Err(r) => return Ok(r),
     };
-    let Some(ranker) = ranker::by_name(q.get("mode").map(String::as_str)) else {
+    let artist = q.get("artist").map(String::as_str).filter(|h| valid_handle(h));
+    let Some(mode) = ranker::Mode::parse(q.get("mode").map(String::as_str), artist) else {
         return Ok(json_error(StatusCode::BAD_REQUEST, "unknown mode"));
     };
+    // The artist graph is thin at first: crawl the radio's artist and their related pages.
+    if let ranker::Mode::Artist(h) = &mode {
+        app.crawler.explore_artist(h.clone()).await;
+    }
     let n = num(&q, "n").map(|n| n as usize).unwrap_or(10).clamp(1, 30);
     let filters = ranker::Filters {
         free_only: q.get("free").map(String::as_str) == Some("1"),
@@ -74,7 +79,8 @@ pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Qu
     let deadline = Instant::now() + FEED_WAIT;
     let uid = user.id;
     let mut tracks = loop {
-        let tracks = app.db.call(move |c| ranker::pick(c, uid, n, filters, ranker)).await?;
+        let mode = mode.clone();
+        let tracks = app.db.call(move |c| ranker::pick(c, uid, n, filters, &*mode.ranker(c)?)).await?;
         if !tracks.is_empty() || Instant::now() >= deadline {
             break tracks;
         }

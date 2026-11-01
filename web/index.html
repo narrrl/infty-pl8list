@@ -31,6 +31,7 @@
 
   <header id="bar" hidden>
     <span class="logo">pl8list <b>∞</b></span>
+    <button id="mode-chip" type="button" title="back to your feed" hidden></button>
     <span id="stats"></span>
     <button id="filters-btn" type="button" aria-controls="filters" aria-expanded="false">filters</button>
     <button id="likes-btn" type="button" aria-controls="likes" aria-expanded="false">likes</button>
@@ -80,6 +81,13 @@
   </div>
 
   <form id="filters" class="panel" hidden>
+    <fieldset class="modes">
+      <legend>feed</legend>
+      <label><input type="radio" name="mode" value="classic"> for you</label>
+      <label><input type="radio" name="mode" value="riddim"> riddim</label>
+      <label><input type="radio" name="mode" value="fresh"> fresh</label>
+      <label><input type="radio" name="mode" value="deep"> deep cuts</label>
+    </fieldset>
     <label><input type="checkbox" name="free"> free only</label>
     <label>bpm <input type="number" name="bpm_min" min="40" max="250" placeholder="min"></label>
     <label>– <input type="number" name="bpm_max" min="40" max="250" placeholder="max"></label>
@@ -137,6 +145,7 @@
         <dt>↓ j · ↑ k · wheel</dt><dd>next / previous</dd>
         <dt>← →</dt><dd>seek 10 s</dd>
         <dt>f</dt><dd>follow artist</dd>
+        <dt>r</dt><dd>artist radio</dd>
         <dt>x</dt><dd>not for me</dd>
         <dt>s</dt><dd>share</dd>
         <dt>m</dt><dd>mute</dd>
@@ -163,6 +172,7 @@
         <div class="byline">
           <a class="artist" target="_blank" rel="noopener"></a>
           <button type="button" class="follow" title="follow artist (f)">follow</button>
+          <button type="button" class="radio" title="more like this artist (r)">radio</button>
         </div>
         <div class="chips"></div>
         <p class="desc"></p>

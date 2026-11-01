@@ -28,16 +28,19 @@ use crate::{
 };
 
 /// Search needs at least 3 characters. Genre-ish words find lots of artist handles.
+/// Riddim and its neighbours are searched first.
+const STYLE_TERMS: &[&str] = &["riddim", "dubstep", "tearout", "dubz", "wonk", "deathstep", "brostep", "halftime", "140"];
 const SEARCH_TERMS: &[&str] = &[
-    "dub", "bass", "dnb", "jungle", "garage", "grime", "riddim", "dubstep", "trap", "techno",
-    "house", "beats", "music", "sound", "prod", "audio", "records", "drill", "breaks", "wave",
-    "deep", "dark", "the", "official", "dj", "mc", "lofi", "halftime", "neuro", "tek",
+    "dub", "bass", "dnb", "jungle", "garage", "grime", "trap", "techno", "house", "beats", "music",
+    "sound", "prod", "audio", "records", "drill", "breaks", "wave", "deep", "dark", "the",
+    "official", "dj", "mc", "lofi", "neuro", "tek",
 ];
 
 // Lower number = sooner.
 const P_FEEDBACK: i64 = 0;
 const P_SEED: i64 = 10;
 const P_ARTIST_FIRST: i64 = 20;
+const P_STYLE: i64 = 15;
 const P_RELATED: i64 = 30;
 const P_ARTIST_MORE: i64 = 40;
 const P_SEARCH: i64 = 60;
@@ -144,6 +147,24 @@ impl Crawler {
         }
     }
 
+    /// An artist radio was opened: crawl the artist, and the related pages of their
+    /// best tracks that were not read yet, to fill in the artist graph around them.
+    pub async fn explore_artist(&self, handle: String) {
+        self.push(P_FEEDBACK, Job::Artist(handle.clone()));
+        let h = handle.clone();
+        let tracks = self
+            .db
+            .call(move |c| {
+                c.prepare("SELECT id, slug FROM tracks WHERE handle=? AND related_fetched=0 ORDER BY saves + downloads DESC LIMIT 3")?
+                    .query_map([&h], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .await;
+        for (id, slug) in tracks.unwrap_or_default() {
+            self.push(P_FEEDBACK, Job::Related(id, handle.clone(), slug));
+        }
+    }
+
     // Main loop -------------------------------------------------------------
 
     pub fn start(self: &Arc<Self>) {
@@ -181,6 +202,9 @@ impl Crawler {
         self.push(P_SEED, Job::Home);
         self.push(P_SEED, Job::Ticker);
         self.push(P_SEED, Job::BestArtists);
+        for term in STYLE_TERMS {
+            self.push(P_STYLE, Job::Search(term.to_string()));
+        }
         for term in SEARCH_TERMS {
             self.push(P_SEARCH, Job::Search(term.to_string()));
         }
@@ -206,8 +230,9 @@ impl Crawler {
                 )?;
                 let related: Vec<(i64, String, String)> = c
                     .prepare(
-                        "SELECT id, handle, slug FROM tracks WHERE related_fetched=0 \
-                         ORDER BY saves + downloads DESC LIMIT 10",
+                        "SELECT id, handle, slug FROM tracks t WHERE related_fetched=0 ORDER BY \
+                         EXISTS (SELECT 1 FROM track_tags g WHERE g.track_id = t.id AND g.tag = 'riddim') DESC, \
+                         saves + downloads DESC LIMIT 10",
                     )?
                     .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
                     .collect::<Result<_, _>>()?;
@@ -312,6 +337,8 @@ impl Crawler {
                 let rows = normalize::related(&d);
                 let artists: Vec<_> = rows.iter().map(|r| (r.handle.clone(), r.artist_name.clone(), r.artist_img.clone(), r.artist_verified)).collect();
                 self.upsert(rows, Some(track_id)).await?;
+                let handles: Vec<String> = artists.iter().map(|a| a.0.clone()).collect();
+                self.db.call(move |c| db::add_related(c, track_id, &handles)).await?;
                 for (h, name, img, verified) in artists {
                     self.add_artist(h, "related", Some(name), img, verified, P_RELATED).await?;
                 }
@@ -384,7 +411,8 @@ impl Crawler {
             let Some(a) = item.get("artist") else { continue };
             if let Some(h) = s(a, "handle") {
                 let verified = a.get("isVerified").and_then(Value::as_bool).unwrap_or(false);
-                let prio = if verified { P_ARTIST_FIRST } else { P_SEARCH + 5 };
+                let riddim = s(a, "name").into_iter().chain([h.clone()]).any(|n| n.to_lowercase().contains("riddim"));
+                let prio = if verified || riddim { P_ARTIST_FIRST } else { P_SEARCH + 5 };
                 self.add_artist(h, "search", s(a, "name"), s(a, "img"), verified, prio).await?;
             }
         }

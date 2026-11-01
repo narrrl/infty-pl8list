@@ -380,3 +380,40 @@ async fn token_rotation_keeps_the_pl8list_connection() {
     assert_eq!(app.sync.key.sealer(&new, 5).open(&new_blob.unwrap()).unwrap().expose_secret(), "PL8");
     assert!(old_blob.is_none());
 }
+
+#[tokio::test]
+async fn feed_modes_filter_and_tag_tracks() {
+    let (r, app, _) = setup("modes", "http://127.0.0.1:9").await;
+    let token = app
+        .db
+        .call(|c| {
+            let t = |id, title: &str, bpm| crate::db::Track {
+                id,
+                handle: "h".into(),
+                artist_name: "H".into(),
+                slug: format!("s{id}"),
+                title: title.into(),
+                bpm: Some(bpm),
+                full_access: true,
+                ..Default::default()
+            };
+            crate::db::upsert_tracks(c, &[t(1, "Riddim VIP", 140.0), t(2, "Roller", 174.0)], None)?;
+            crate::db::upsert_user(c, 5, "tester", None, None)?;
+            crate::db::create_session(c, 5)
+        })
+        .await
+        .unwrap();
+    let cookie = format!("__Host-pl8inf={token}");
+    let get = |uri: &str| r.clone().oneshot(req("GET", uri, None, Some(&cookie), "203.0.113.1"));
+    let res = get("/local/feed?mode=riddim").await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = json_body(res).await;
+    let tracks = body["tracks"].as_array().unwrap();
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0]["tags"], serde_json::json!(["140", "riddim", "vip"]));
+    for bad in ["/local/feed?mode=nope", "/local/feed?mode=artist", "/local/feed?mode=artist&artist=..%2Fx"] {
+        assert_eq!(get(bad).await.unwrap().status(), StatusCode::BAD_REQUEST, "{bad}");
+    }
+    let res = get("/local/feed?mode=artist&artist=h").await.unwrap();
+    assert_eq!(json_body(res).await["tracks"].as_array().unwrap().len(), 1);
+}

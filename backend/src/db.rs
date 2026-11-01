@@ -107,6 +107,29 @@ CREATE TABLE IF NOT EXISTS follows (
 );
 "#;
 
+// track_tags: see tags.rs. track_related: the artists on a track's "related" page;
+// the artist graph is read from it. meta: small settings, like the tagger version.
+const SCHEMA_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS track_tags (
+    track_id INTEGER NOT NULL,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (track_id, tag)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS track_tags_tag ON track_tags(tag, track_id);
+CREATE TABLE IF NOT EXISTS track_related (
+    track_id INTEGER NOT NULL,
+    handle TEXT NOT NULL,
+    PRIMARY KEY (track_id, handle)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS track_related_handle ON track_related(handle);
+INSERT OR IGNORE INTO track_related (track_id, handle)
+    SELECT related_of, handle FROM tracks WHERE related_of IS NOT NULL;
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value
+);
+"#;
+
 pub fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64()
 }
@@ -116,11 +139,15 @@ pub struct Db(Arc<Mutex<Connection>>);
 
 impl Db {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let conn = Connection::open(path)?;
+        let mut conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         migrate(&conn)?;
+        let tagged = retag_if_stale(&mut conn)?;
+        if tagged > 0 {
+            tracing::info!("tagged {tagged} tracks");
+        }
         Ok(Db(Arc::new(Mutex::new(conn))))
     }
 
@@ -162,7 +189,102 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if version < 3 {
         conn.execute_batch(&format!("BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"))?;
     }
+    if version < 4 {
+        conn.execute_batch(&format!("BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"))?;
+    }
     Ok(())
+}
+
+/// An empty in-memory database, for tests.
+#[cfg(test)]
+pub fn memory() -> Connection {
+    let c = Connection::open_in_memory().unwrap();
+    migrate(&c).unwrap();
+    c
+}
+
+// Tags and the artist graph ---------------------------------------------------
+
+fn tags_of(t: &Track) -> Vec<&'static str> {
+    crate::tags::of(&t.title, t.description.as_deref(), &t.artist_name, &t.handle, t.bpm)
+}
+
+fn set_tags(conn: &Connection, track_id: i64, tags: &[&str]) -> rusqlite::Result<()> {
+    conn.prepare_cached("DELETE FROM track_tags WHERE track_id=?")?.execute([track_id])?;
+    let mut insert = conn.prepare_cached("INSERT INTO track_tags (track_id, tag) VALUES (?,?)")?;
+    for tag in tags {
+        insert.execute(params![track_id, tag])?;
+    }
+    Ok(())
+}
+
+/// Tag the whole catalogue again if the rules in tags.rs changed. Returns how many
+/// tracks were tagged.
+pub fn retag_if_stale(conn: &mut Connection) -> rusqlite::Result<usize> {
+    let done: Option<i64> = conn.query_row("SELECT value FROM meta WHERE key='tagger'", [], |r| r.get(0)).optional()?;
+    if done == Some(crate::tags::VERSION) {
+        return Ok(0);
+    }
+    let tx = conn.transaction()?;
+    let tracks: Vec<Track> = tx.prepare("SELECT * FROM tracks")?.query_map([], Track::from_row)?.collect::<Result<_, _>>()?;
+    tx.execute("DELETE FROM track_tags", [])?;
+    for t in &tracks {
+        set_tags(&tx, t.id, &tags_of(t))?;
+    }
+    tx.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('tagger', ?)", [crate::tags::VERSION])?;
+    tx.commit()?;
+    Ok(tracks.len())
+}
+
+pub fn track_tags(conn: &Connection, track_id: i64) -> rusqlite::Result<Vec<String>> {
+    conn.prepare_cached("SELECT tag FROM track_tags WHERE track_id=? ORDER BY tag")?.query_map([track_id], |r| r.get(0))?.collect()
+}
+
+/// Remember which artists showed up on a track's related page.
+pub fn add_related(conn: &mut Connection, track_id: i64, handles: &[String]) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut insert = tx.prepare_cached("INSERT OR IGNORE INTO track_related (track_id, handle) VALUES (?,?)")?;
+        for h in handles {
+            insert.execute(params![track_id, h])?;
+        }
+    }
+    tx.commit()
+}
+
+/// Artist graph edges: (artist, related artist, how many of the first one's tracks
+/// listed the second). Self links are left out.
+pub fn artist_links(conn: &Connection) -> rusqlite::Result<Vec<(String, String, i64)>> {
+    conn.prepare_cached(
+        "SELECT t.handle, r.handle, COUNT(*) FROM track_related r JOIN tracks t ON t.id = r.track_id \
+         WHERE t.handle <> r.handle GROUP BY t.handle, r.handle",
+    )?
+    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+    .collect()
+}
+
+/// Artists linked to `handle` in either direction, with the summed link counts.
+pub fn artist_neighbours(conn: &Connection, handle: &str) -> rusqlite::Result<Vec<(String, i64)>> {
+    conn.prepare_cached(
+        "SELECT h, SUM(n) FROM ( \
+           SELECT r.handle AS h, COUNT(*) AS n FROM track_related r JOIN tracks t ON t.id = r.track_id \
+             WHERE t.handle = ?1 AND r.handle <> ?1 GROUP BY r.handle \
+           UNION ALL \
+           SELECT t.handle, COUNT(*) FROM track_related r JOIN tracks t ON t.id = r.track_id \
+             WHERE r.handle = ?1 AND t.handle <> ?1 GROUP BY t.handle \
+         ) GROUP BY h",
+    )?
+    .query_map([handle], |r| Ok((r.get(0)?, r.get(1)?)))?
+    .collect()
+}
+
+/// How many tracks each artist has with `tag`.
+pub fn tag_counts(conn: &Connection, tag: &str) -> rusqlite::Result<Vec<(String, i64)>> {
+    conn.prepare_cached(
+        "SELECT t.handle, COUNT(*) FROM track_tags g JOIN tracks t ON t.id = g.track_id WHERE g.tag=? GROUP BY t.handle",
+    )?
+    .query_map([tag], |r| Ok((r.get(0)?, r.get(1)?)))?
+    .collect()
 }
 
 // Tracks ------------------------------------------------------------------
@@ -300,6 +422,7 @@ pub fn upsert_tracks(conn: &mut Connection, rows: &[Track], related_of: Option<i
                 insert.execute(params_from_iter(vals))?;
             }
             artist.execute(params![r.handle, r.artist_name, r.artist_img, r.artist_verified as i64])?;
+            set_tags(&tx, r.id, &tags_of(r))?;
         }
     }
     tx.commit()?;
@@ -622,10 +745,35 @@ pub fn purge(conn: &Connection) -> rusqlite::Result<(usize, usize)> {
 mod tests {
     use super::*;
 
-    fn mem() -> Connection {
-        let c = Connection::open_in_memory().unwrap();
-        migrate(&c).unwrap();
-        c
+    use super::memory as mem;
+
+    #[test]
+    fn upsert_tags_tracks_and_retag_follows_the_tagger_version() {
+        let mut c = mem();
+        let t = Track { id: 1, handle: "h".into(), artist_name: "H".into(), slug: "s".into(), title: "Big VIP".into(), bpm: Some(140.0), ..Default::default() };
+        upsert_tracks(&mut c, &[t], None).unwrap();
+        assert_eq!(track_tags(&c, 1).unwrap(), ["140", "vip"]);
+        c.execute("DELETE FROM track_tags", []).unwrap();
+        assert_eq!(retag_if_stale(&mut c).unwrap(), 1);
+        assert_eq!(retag_if_stale(&mut c).unwrap(), 0);
+        assert_eq!(track_tags(&c, 1).unwrap(), ["140", "vip"]);
+    }
+
+    #[test]
+    fn artist_graph_reads_related_pages_both_ways() {
+        let mut c = mem();
+        let track = |id, h: &str| Track { id, handle: h.into(), artist_name: h.into(), slug: format!("s{id}"), title: "T".into(), ..Default::default() };
+        upsert_tracks(&mut c, &[track(1, "a"), track(2, "a"), track(3, "b")], None).unwrap();
+        add_related(&mut c, 1, &["b".into(), "c".into(), "a".into()]).unwrap();
+        add_related(&mut c, 2, &["b".into()]).unwrap();
+        add_related(&mut c, 3, &["d".into()]).unwrap();
+        let mut n = artist_neighbours(&c, "a").unwrap();
+        n.sort();
+        assert_eq!(n, [("b".to_string(), 2), ("c".to_string(), 1)]);
+        let mut n = artist_neighbours(&c, "b").unwrap();
+        n.sort();
+        assert_eq!(n, [("a".to_string(), 2), ("d".to_string(), 1)]);
+        assert_eq!(artist_links(&c).unwrap().len(), 3);
     }
 
     #[test]

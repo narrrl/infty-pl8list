@@ -82,6 +82,13 @@ button {
   vertical-align: middle;
 }
 #bar button[aria-expanded="true"] { background: rgba(255, 255, 255, 0.22); }
+#mode-chip {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: color-mix(in oklab, var(--accent) 40%, transparent);
+}
 
 .panel {
   position: fixed;
@@ -95,7 +102,19 @@ button {
   box-shadow: 0 16px 40px #000a;
 }
 
-#filters { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+#filters { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; max-width: 24rem; }
+.modes { display: flex; gap: 0.4rem; flex-wrap: wrap; flex-basis: 100%; margin: 0; padding: 0; border: 0; }
+.modes legend { color: var(--muted); font-size: 0.8rem; padding: 0; margin-bottom: 0.3rem; }
+.modes label { cursor: pointer; }
+.modes input { position: absolute; opacity: 0; }
+.modes label:has(input) {
+  padding: 0.25em 0.8em;
+  border-radius: 999px;
+  border: 1px solid #ffffff40;
+  font-size: 0.85rem;
+}
+.modes label:has(input:checked) { background: var(--accent); border-color: transparent; color: #000; }
+.modes label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 #filters input[type=number] {
   width: 4.5em;
   background: #222;
@@ -266,7 +285,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 .byline { display: flex; align-items: center; gap: 0.6rem; }
 .artist { color: var(--muted); text-decoration: none; }
 .artist:hover { text-decoration: underline; }
-.follow {
+.follow, .radio {
   font-size: 0.75rem;
   padding: 0.15em 0.75em;
   border-radius: 999px;
@@ -285,6 +304,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 .chips .free { background: #1f7a4d; }
 .chips span:first-child { background: color-mix(in oklab, var(--card-accent) 35%, transparent); }
 .chips .preview { background: #6a4b16; }
+.chips .tag { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--card-accent) 60%, transparent); }
 
 .desc {
   margin: 0;

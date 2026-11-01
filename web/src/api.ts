@@ -22,6 +22,8 @@ export interface Track {
   upload_id: string | null;
   waveform: number[] | null;
   followed?: boolean;
+  /// From titles, descriptions and BPM, see backend/src/tags.rs.
+  tags?: string[];
 }
 
 export interface Stats {
@@ -48,6 +50,12 @@ export interface Me {
 }
 
 export type Filters = Partial<Record<"free" | "bpm_min" | "bpm_max", string>>;
+
+/// Which part of the catalogue the feed draws from. `artist` is an artist radio:
+/// that artist and the ones pl8list relates to them.
+export type Mode =
+  | { mode: "classic" | "riddim" | "fresh" | "deep" }
+  | { mode: "artist"; artist: string; name: string };
 
 export type EventKind = "play" | "like" | "unlike" | "skip" | "complete" | "dislike";
 
@@ -84,8 +92,12 @@ export function sendEvent(track: Track, kind: EventKind, seconds?: number): void
   }
 }
 
-export const feed = (filters: Filters) =>
-  getJSON<{ tracks: Track[]; stats: Stats }>("/local/feed?" + new URLSearchParams({ n: "10", ...filters }));
+export function feed(filters: Filters, mode: Mode) {
+  const p = new URLSearchParams({ n: "10", ...filters });
+  if (mode.mode !== "classic") p.set("mode", mode.mode);
+  if (mode.mode === "artist") p.set("artist", mode.artist);
+  return getJSON<{ tracks: Track[]; stats: Stats }>("/local/feed?" + p);
+}
 
 export const likes = () => getJSON<{ tracks: Track[] }>("/local/likes");
 

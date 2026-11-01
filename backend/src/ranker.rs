@@ -11,8 +11,8 @@
 //!     exploration  Gumbel noise, so the feed never freezes into one niche
 //!
 //! The batch is then picked greedily with a penalty for repeating an artist.
-//! A `Ranker` supplies the weights and may narrow the candidates; discovery modes
-//! are further `Ranker`s chosen with `?mode=`.
+//! A `Ranker` supplies the weights, may narrow the candidates and may add a bonus.
+//! Discovery modes (`Mode`) are further `Ranker`s chosen with `?mode=`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -40,6 +40,14 @@ pub trait Ranker: Send + Sync {
     fn condition(&self) -> Option<&str> {
         None
     }
+    /// Drop candidates the SQL condition cannot express.
+    fn keep(&self, _track: &Track) -> bool {
+        true
+    }
+    /// Added to a candidate's score.
+    fn bonus(&self, _track: &Track) -> f64 {
+        0.0
+    }
 }
 
 /// The original mix.
@@ -62,11 +70,161 @@ impl Ranker for Classic {
     }
 }
 
-pub fn by_name(mode: Option<&str>) -> Option<&'static dyn Ranker> {
-    match mode.unwrap_or("") {
-        "" | "classic" => Some(&Classic),
-        _ => None,
+/// Discovery modes, chosen with `?mode=` (and `&artist=` for an artist radio).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Mode {
+    Classic,
+    /// 140 BPM tracks, riddim first: tagged riddim, or by artists who make it or sit
+    /// next to them in the artist graph.
+    Riddim,
+    /// Little-known tracks: popularity counts against a track.
+    Deep,
+    /// Uploads of the last few weeks.
+    Fresh,
+    /// "More like this artist": the artist and their neighbours in the artist graph.
+    Artist(String),
+}
+
+impl Mode {
+    pub fn parse(mode: Option<&str>, artist: Option<&str>) -> Option<Mode> {
+        Some(match mode.unwrap_or("") {
+            "" | "classic" => Mode::Classic,
+            "riddim" => Mode::Riddim,
+            "deep" => Mode::Deep,
+            "fresh" => Mode::Fresh,
+            "artist" => Mode::Artist(artist?.to_string()),
+            _ => return None,
+        })
     }
+
+    pub fn ranker(&self, conn: &Connection) -> rusqlite::Result<Box<dyn Ranker>> {
+        Ok(match self {
+            Mode::Classic => Box::new(Classic),
+            Mode::Riddim => Box::new(Riddim { affinity: tag_affinity(conn, "riddim")? }),
+            Mode::Deep => Box::new(Deep),
+            Mode::Fresh => Box::new(Fresh),
+            Mode::Artist(h) => Box::new(ArtistRadio { seed: h.clone(), near: neighbourhood(conn, h)? }),
+        })
+    }
+}
+
+struct Riddim {
+    affinity: HashMap<String, f64>,
+}
+
+const RIDDIM: Weights = Weights { popularity: 0.8, ..CLASSIC };
+
+impl Ranker for Riddim {
+    fn weights(&self) -> &Weights {
+        &RIDDIM
+    }
+    fn condition(&self) -> Option<&str> {
+        Some("EXISTS (SELECT 1 FROM track_tags g WHERE g.track_id = t.id AND g.tag = '140')")
+    }
+    fn bonus(&self, t: &Track) -> f64 {
+        2.0 * self.affinity.get(&t.handle).copied().unwrap_or(0.0)
+    }
+}
+
+struct Deep;
+
+const DEEP: Weights = Weights {
+    popularity: -0.8,
+    freshness: 0.3,
+    artist: 0.6,
+    tempo: 1.0,
+    key: 0.3,
+    related: 0.5,
+    unknown_artist: 1.0,
+    exploration: 0.8,
+};
+
+impl Ranker for Deep {
+    fn weights(&self) -> &Weights {
+        &DEEP
+    }
+    fn condition(&self) -> Option<&str> {
+        Some("t.saves <= 15")
+    }
+}
+
+struct Fresh;
+
+const FRESH: Weights = Weights { freshness: 3.0, popularity: 0.6, ..CLASSIC };
+
+impl Ranker for Fresh {
+    fn weights(&self) -> &Weights {
+        &FRESH
+    }
+    // pl8list dates look like 2026-10-31T18:34:13.657Z, so they compare as text.
+    fn condition(&self) -> Option<&str> {
+        Some("t.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-45 days')")
+    }
+}
+
+struct ArtistRadio {
+    seed: String,
+    /// Neighbours, 0..1 by how closely they are linked.
+    near: HashMap<String, f64>,
+}
+
+const RADIO: Weights = Weights { artist: 0.5, related: 0.5, ..CLASSIC };
+
+impl Ranker for ArtistRadio {
+    fn weights(&self) -> &Weights {
+        &RADIO
+    }
+    fn keep(&self, t: &Track) -> bool {
+        t.handle == self.seed || self.near.contains_key(&t.handle)
+    }
+    // The artist themselves now and then; mostly the ones around them.
+    fn bonus(&self, t: &Track) -> f64 {
+        if t.handle == self.seed { 1.0 } else { 2.0 * self.near.get(&t.handle).copied().unwrap_or(0.0) }
+    }
+}
+
+/// Neighbours of an artist up to two hops away, scored 0..1. A second-hop artist
+/// scores at most 0.4 of the link that leads to it.
+fn neighbourhood(conn: &Connection, seed: &str) -> rusqlite::Result<HashMap<String, f64>> {
+    let scaled = |links: Vec<(String, i64)>| {
+        let max = links.iter().map(|l| l.1).max().unwrap_or(1).max(1) as f64;
+        links.into_iter().map(|(h, n)| (h, (n as f64 / max).sqrt())).collect::<Vec<_>>()
+    };
+    let first = scaled(crate::db::artist_neighbours(conn, seed)?);
+    let mut near: HashMap<String, f64> = first.iter().cloned().collect();
+    let mut by_score = first;
+    by_score.sort_by(|a, b| b.1.total_cmp(&a.1));
+    for (h, w) in by_score.into_iter().take(10) {
+        for (h2, w2) in scaled(crate::db::artist_neighbours(conn, &h)?) {
+            if h2 != seed {
+                let s = near.entry(h2).or_default();
+                *s = s.max(0.4 * w * w2);
+            }
+        }
+    }
+    Ok(near)
+}
+
+/// How strongly each artist is linked to `tag`, 0..1: their own tagged tracks (three
+/// or more count fully), or half of what the artists next to them in the graph have.
+pub fn tag_affinity(conn: &Connection, tag: &str) -> rusqlite::Result<HashMap<String, f64>> {
+    let own: HashMap<String, f64> = crate::db::tag_counts(conn, tag)?.into_iter().map(|(h, n)| (h, (n as f64 / 3.0).min(1.0))).collect();
+    let mut spread: HashMap<String, (f64, f64)> = HashMap::new();
+    for (a, b, n) in crate::db::artist_links(conn)? {
+        let n = n as f64;
+        for (from, to) in [(&a, &b), (&b, &a)] {
+            let e = spread.entry(to.clone()).or_default();
+            e.0 += n * own.get(from).copied().unwrap_or(0.0);
+            e.1 += n;
+        }
+    }
+    let mut out = own;
+    for (h, (sum, total)) in spread {
+        let s = out.entry(h).or_default();
+        *s = s.max(0.5 * sum / total);
+    }
+    out.retain(|_, v| *v > 0.0);
+    Ok(out)
 }
 
 /// Per-event contributions to artist affinity.
@@ -183,7 +341,8 @@ pub fn pick(conn: &Connection, user_id: i64, n: usize, f: Filters, ranker: &dyn 
         sql.push_str(c);
         sql.push(')');
     }
-    let cands: Vec<Track> = conn.prepare(&sql)?.query_map(params_from_iter(args), Track::from_row)?.collect::<Result<_, _>>()?;
+    let mut cands: Vec<Track> = conn.prepare(&sql)?.query_map(params_from_iter(args), Track::from_row)?.collect::<Result<_, _>>()?;
+    cands.retain(|t| ranker.keep(t));
     if cands.is_empty() {
         return Ok(vec![]);
     }
@@ -217,7 +376,8 @@ pub fn pick(conn: &Connection, user_id: i64, n: usize, f: Filters, ranker: &dyn 
                 + w.key * if r.key.as_ref().is_some_and(|k| t.keys.contains(k)) { 1.0 } else { 0.0 }
                 + w.related * if r.related_of.is_some_and(|id| t.positive_ids.contains(&id)) { 1.0 } else { 0.0 }
                 + w.unknown_artist * if aff.is_none() { 1.0 } else { 0.0 }
-                + w.exploration * -(-u.ln()).ln();
+                + w.exploration * -(-u.ln()).ln()
+                + ranker.bonus(&r);
             (s, r)
         })
         .collect();
@@ -233,7 +393,17 @@ pub fn pick(conn: &Connection, user_id: i64, n: usize, f: Filters, ranker: &dyn 
         seen.push(r.handle.clone());
         out.push(serialize(&r, Some(s)));
     }
+    add_tags(conn, &mut out)?;
     Ok(out)
+}
+
+fn add_tags(conn: &Connection, tracks: &mut [Value]) -> rusqlite::Result<()> {
+    for t in tracks {
+        if let Some(id) = t["id"].as_i64() {
+            t["tags"] = json!(crate::db::track_tags(conn, id)?);
+        }
+    }
+    Ok(())
 }
 
 pub fn serialize(r: &Track, score: Option<f64>) -> Value {
@@ -278,12 +448,91 @@ pub fn likes(conn: &Connection, user_id: i64) -> rusqlite::Result<Vec<Value>> {
             out.push(serialize(&t, None));
         }
     }
+    add_tags(conn, &mut out)?;
     Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::db;
+
+    fn track(id: i64, handle: &str, title: &str, bpm: f64, saves: i64) -> Track {
+        Track {
+            id,
+            handle: handle.into(),
+            artist_name: handle.into(),
+            slug: format!("s{id}"),
+            title: title.into(),
+            bpm: Some(bpm),
+            saves,
+            full_access: true,
+            created_at: Some("2020-01-01T00:00:00.000Z".into()),
+            ..Default::default()
+        }
+    }
+
+    fn ids(conn: &Connection, mode: Mode, n: usize) -> Vec<i64> {
+        let r = mode.ranker(conn).unwrap();
+        let mut out: Vec<i64> = pick(conn, 1, n, Filters::default(), &*r).unwrap().iter().map(|t| t["id"].as_i64().unwrap()).collect();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn riddim_mode_keeps_140_and_ranks_riddim_artists_and_their_neighbours_first() {
+        let mut c = db::memory();
+        let rows = [
+            track(1, "rid", "Wobble riddim", 140.0, 0),
+            track(2, "rid", "Other", 140.0, 0),
+            track(3, "near", "Plain", 140.0, 0),
+            track(4, "far", "Plain", 140.0, 500),
+            track(5, "dnb", "Roller", 174.0, 900),
+        ];
+        db::upsert_tracks(&mut c, &rows, None).unwrap();
+        db::add_related(&mut c, 3, &["rid".into()]).unwrap();
+        let aff = tag_affinity(&c, "riddim").unwrap();
+        assert!((aff["rid"] - 1.0 / 3.0).abs() < 1e-9);
+        assert!(aff["near"] > 0.0 && aff["near"] < aff["rid"]);
+        assert!(!aff.contains_key("far"));
+        assert_eq!(ids(&c, Mode::Riddim, 10), [1, 2, 3, 4]);
+        let r = Mode::Riddim.ranker(&c).unwrap();
+        assert!(r.bonus(&rows[0]) > r.bonus(&rows[2]) && r.bonus(&rows[2]) > r.bonus(&rows[3]));
+    }
+
+    #[test]
+    fn artist_radio_stays_near_the_artist() {
+        let mut c = db::memory();
+        let rows = [track(1, "a", "T", 140.0, 0), track(2, "b", "T", 140.0, 0), track(3, "c", "T", 140.0, 0), track(4, "z", "T", 140.0, 0)];
+        db::upsert_tracks(&mut c, &rows, None).unwrap();
+        db::add_related(&mut c, 1, &["b".into()]).unwrap();
+        db::add_related(&mut c, 2, &["c".into()]).unwrap();
+        let near = neighbourhood(&c, "a").unwrap();
+        assert_eq!(near["b"], 1.0);
+        assert!((near["c"] - 0.4).abs() < 1e-9);
+        assert_eq!(ids(&c, Mode::Artist("a".into()), 10), [1, 2, 3]);
+    }
+
+    #[test]
+    fn deep_and_fresh_narrow_the_catalogue() {
+        let mut c = db::memory();
+        let mut new = track(3, "c", "T", 140.0, 0);
+        new.created_at = Some(c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')", [], |r| r.get(0)).unwrap());
+        db::upsert_tracks(&mut c, &[track(1, "a", "T", 140.0, 2), track(2, "b", "T", 140.0, 400), new], None).unwrap();
+        assert_eq!(ids(&c, Mode::Deep, 10), [1, 3]);
+        assert_eq!(ids(&c, Mode::Fresh, 10), [3]);
+        assert_eq!(ids(&c, Mode::Classic, 10), [1, 2, 3]);
+    }
+
+    #[test]
+    fn modes_parse() {
+        assert_eq!(Mode::parse(None, None), Some(Mode::Classic));
+        assert_eq!(Mode::parse(Some("riddim"), None), Some(Mode::Riddim));
+        assert_eq!(Mode::parse(Some("artist"), Some("x")), Some(Mode::Artist("x".into())));
+        assert_eq!(Mode::parse(Some("artist"), None), None);
+        assert_eq!(Mode::parse(Some("nope"), None), None);
+    }
 
     #[test]
     fn tempo_counts_half_and_double_time() {

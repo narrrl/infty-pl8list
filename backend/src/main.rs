@@ -23,6 +23,7 @@ mod pl8;
 mod ranker;
 mod ratelimit;
 mod sync;
+mod tags;
 
 use std::{
     io::{Read, Write},

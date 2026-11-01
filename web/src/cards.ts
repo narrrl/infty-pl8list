@@ -10,6 +10,7 @@ export interface CardActions {
   share(card: Card): void;
   next(card: Card): void;
   follow(card: Card): void;
+  radio(card: Card): void;
   /// Seeking only works on the playing card.
   canSeek(card: Card): boolean;
   duration(card: Card): number;
@@ -88,6 +89,8 @@ export class Card {
     if (t.key) chip(t.key);
     chip(t.price ? `$${t.price}` : "free", t.price ? "" : "free");
     if (t.preview) chip("preview", "preview");
+    // Tempo tags repeat the BPM chip.
+    for (const tag of (t.tags ?? []).filter((g) => !/^\d+$/.test(g)).slice(0, 4)) chip(tag, "tag");
 
     $(".counts").textContent =
       `${t.saves} saves · ${t.downloads} downloads · ${t.comments} comments` +
@@ -98,6 +101,7 @@ export class Card {
     $(".share").addEventListener("click", () => this.actions.share(this));
     $(".next").addEventListener("click", () => this.actions.next(this));
     $(".follow").addEventListener("click", () => this.actions.follow(this));
+    $(".radio").addEventListener("click", () => this.actions.radio(this));
 
     this.el = el;
     this.canvas = $<HTMLCanvasElement>(".wave");

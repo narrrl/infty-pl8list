@@ -1,7 +1,7 @@
 import "./style.css";
 
 import * as api from "./api";
-import type { Filters, Pl8Status, Stats, Track, User } from "./api";
+import type { Filters, Mode, Pl8Status, Stats, Track, User } from "./api";
 import { Card, type CardActions, cleanTitle } from "./cards";
 import { Pager } from "./pager";
 import { Player } from "./player";
@@ -14,6 +14,7 @@ const DOUBLE_TAP_MS = 300;
 const PRELOAD_AFTER_MS = 2500; // start buffering the next track once this one has played a bit
 const KEEP_BUILT = 3; // cards further than this from the current one drop their elements
 const FILTERS_KEY = "pl8inf.filters";
+const MODE_KEY = "pl8inf.mode";
 const HINT_KEY = "pl8inf.hintShown";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -39,6 +40,7 @@ const visual = new Visualizer(player);
 const cards: Card[] = [];
 let active = -1;
 let loading = false;
+let feedGen = 0; // bumped when the feed changes, so answers for the old one are dropped
 let started = false;
 let listened = 0; // seconds actually heard on the active card
 let lastTime = 0;
@@ -46,6 +48,7 @@ let reported = false; // final event already sent for the active card
 let advanced = false; // already mixed into the next track
 let preloadTimer = 0;
 let filters: Filters = loadFilters();
+let mode: Mode = loadMode();
 let stats: Stats | null = null;
 
 const current = () => cards[active] as Card | undefined;
@@ -68,14 +71,18 @@ async function loadMore(): Promise<void> {
   if (loading) return;
   loading = true;
   if (!cards.length) setStatus("crawling pl8list, first tracks in a few seconds…");
+  const gen = feedGen;
   try {
-    const data = await api.feed(filters);
+    const data = await api.feed(filters, mode);
+    if (gen !== feedGen) return;
     showStats(data.stats);
     if (!data.tracks.length) {
-      setStatus(Object.keys(filters).length
-        ? "nothing new matches your filters right now. loosen them, or check back in a bit."
+      setStatus(mode.mode === "artist"
+        ? `nothing more around ${mode.name} yet. the crawler is looking up who they're related to, try again in a bit.`
+        : mode.mode !== "classic" || Object.keys(filters).length
+        ? "nothing new matches this feed and your filters right now. loosen them, or check back in a bit."
         : "nothing new right now, the crawler is still digging. try again in a bit.");
-      setTimeout(() => { loading = false; }, 8000);
+      setTimeout(() => { if (gen === feedGen) loading = false; }, 8000);
       return;
     }
     setStatus("");
@@ -83,6 +90,7 @@ async function loadMore(): Promise<void> {
     pager.refresh();
     if (active < 0) activate(0);
   } catch (err) {
+    if (gen !== feedGen) return;
     if (err instanceof api.HttpError && err.status === 401) {
       loading = false;
       showLogin();
@@ -164,6 +172,7 @@ const actions: CardActions = {
   share: (c) => share(c),
   next: (c) => go(cards.indexOf(c) + 1),
   follow: (c) => setFollow(c, !c.track.followed),
+  radio: (c) => setMode({ mode: "artist", artist: c.track.handle, name: c.track.artist_name }),
   canSeek: (c) => c === current() && !!player.audio.duration,
   duration: (c) => (c === current() && player.audio.duration) || c.track.duration || 0,
   seek: (_, s) => player.seek(s),
@@ -468,11 +477,55 @@ function applyFilters(): void {
   localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
   showFilters();
   closePanels();
-  // Drop cards after the current one so the new filter applies right away.
+  refill();
+}
+
+/// Drop cards after the current one so a new filter or mode applies right away.
+function refill(): void {
   for (const c of cards.splice(active + 1)) c.release();
   pager.refresh();
+  feedGen++;
+  loading = false;
   loadMore();
 }
+
+// Feed modes --------------------------------------------------------------
+
+const modeChip = $("mode-chip");
+const MODE_NAMES = { classic: "for you", riddim: "riddim", fresh: "fresh", deep: "deep cuts" };
+
+function loadMode(): Mode {
+  try {
+    const m = JSON.parse(localStorage.getItem(MODE_KEY) || "null");
+    if (m?.mode === "artist" ? typeof m.artist === "string" && typeof m.name === "string" : m?.mode in MODE_NAMES) return m;
+  } catch { /* fall through */ }
+  return { mode: "classic" };
+}
+
+const modeName = (m: Mode) => (m.mode === "artist" ? `${m.name} radio` : MODE_NAMES[m.mode]);
+
+function showMode(): void {
+  modeChip.hidden = mode.mode === "classic";
+  modeChip.textContent = `${modeName(mode)} ×`;
+  for (const input of filtersForm.querySelectorAll<HTMLInputElement>("input[name=mode]")) input.checked = input.value === mode.mode;
+}
+
+function setMode(m: Mode): void {
+  if (JSON.stringify(m) === JSON.stringify(mode)) return;
+  mode = m;
+  localStorage.setItem(MODE_KEY, JSON.stringify(mode));
+  showMode();
+  closePanels();
+  toast(m.mode === "classic" ? "back to your feed" : `now playing: ${modeName(m)}`);
+  refill();
+}
+
+modeChip.addEventListener("click", () => setMode({ mode: "classic" }));
+filtersForm.addEventListener("change", (e) => {
+  const input = e.target as HTMLInputElement;
+  if (input.name === "mode") setMode({ mode: input.value as "classic" | "riddim" | "fresh" | "deep" });
+});
+showMode();
 
 filtersBtn.addEventListener("click", () => togglePanel(filtersForm));
 filtersForm.addEventListener("submit", (e) => { e.preventDefault(); applyFilters(); });
@@ -503,6 +556,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "ArrowLeft") player.seek(a.currentTime - 10);
   else if (k === "l" && card) setLike(card, !card.liked);
   else if (k === "f" && card) setFollow(card, !card.track.followed);
+  else if (k === "r" && card) actions.radio(card);
   else if (k === "x" && card) dislike(card);
   else if (k === "s" && card) share(card);
   else if (k === "m") { player.muted = !player.muted; toast(player.muted ? "muted" : "sound on"); }
@@ -659,6 +713,7 @@ deleteForm.addEventListener("submit", async (e) => {
   try {
     await api.postJSON("/account/delete", { confirm: deleteConfirm.value.trim() });
     localStorage.removeItem(FILTERS_KEY);
+    localStorage.removeItem(MODE_KEY);
     localStorage.removeItem(HINT_KEY);
     location.reload();
   } catch (err) {

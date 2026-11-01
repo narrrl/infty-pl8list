@@ -120,14 +120,17 @@ visitor address reaches pl8list or a CDN.
 | swipe up / down  | ↓ j · ↑ k            | next / previous                |
 | drag waveform    | drag waveform · ← →  | seek                           |
 | follow button    | f                    | follow the artist              |
+| radio button     | r                    | artist radio (more like them)  |
 | ✕ button         | x                    | not for me (skip, show less)   |
 | share button     | s                    | share / copy link              |
 |                  | m                    | mute                           |
 |                  | ? · Esc              | help · close panels            |
 
 Lock-screen, notification and headphone buttons control playback too (Media Session API).
-"likes" lists your likes newest first; ▶ plays one right away. Filters (free only, BPM range)
-are remembered per browser. The site can be installed to the home screen as an app.
+"likes" lists your likes newest first; ▶ plays one right away. The filters panel picks the
+feed (for you, riddim, fresh, deep cuts); "radio" on a card starts an artist radio, and the chip
+in the top bar goes back to your feed. Feed and filters (free only, BPM range) are remembered
+per browser. The site can be installed to the home screen as an app.
 
 ## Front end
 
@@ -183,8 +186,31 @@ its artist's catalogue are crawled first.
 freshness, artist affinity (from their likes, completions, skips, "not for me" and follows), closeness to the BPM and
 key of tracks they liked, whether it is related to something they liked, and some random
 exploration. Artists are then spread out so you don't get five tracks from one person in a
-row. Weights live in a `Ranker`; `?mode=` on `/local/feed` picks one, so discovery modes
-can be added next to `Classic`.
+row. Weights live in a `Ranker`, which can also narrow the candidates and add a bonus;
+`?mode=` on `/local/feed` picks one:
+
+| mode                       | what it plays                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| (none) / `classic`         | the mix above                                                                  |
+| `riddim`                   | 140 BPM (or 70) tracks, riddim first                                           |
+| `fresh`                    | uploads of the last 45 days, newest weighted up                                |
+| `deep`                     | tracks with 15 saves or fewer; popularity counts against a track               |
+| `artist&artist=<handle>`   | artist radio: the artist and their neighbours in the artist graph (two hops)   |
+
+**Tags** (`backend/src/tags.rs`). pl8list has no genre field, so tags come from words in the
+title, description and artist name, and from the BPM: styles (`riddim`, `tearout`, `wonk`, `dnb`,
+…), versions (`vip`, `dub`, `dubpack`, `remix`, `flip`, `special`, `collab`, `wip` for v1/v2…)
+and tempo (`140`, `170`). They are stored in `track_tags`, sent with each track and shown on the
+card. Changing the rules means bumping `tags::VERSION`; the catalogue is retagged on the next
+start.
+
+**Artist graph.** Every related page the crawler reads is stored in `track_related` (which
+artists pl8list lists next to a track). Two artists are linked by how often that happens, in
+either direction. The artist radio uses the graph directly. Riddim mode uses it to spread the
+sparse `riddim` tag: an artist counts as riddim by their own tagged tracks (three count fully)
+or by half of what the artists next to them have. Opening a radio crawls that artist and the
+related pages of their top tracks first, so a new radio fills in within seconds. The crawler
+also searches riddim-adjacent terms first and prefers related pages of riddim tracks.
 
 **Audio.** The browser only talks to this server. HLS playlists and segments are proxied from
 pl8list as a guest, so users hear previews of paid tracks and full free tracks, the same as a
