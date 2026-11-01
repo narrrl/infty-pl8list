@@ -5,6 +5,7 @@
 import type { Features } from "../features";
 import { icosphere } from "./mesh";
 import { FRAGMENT, VERTEX } from "./shaders";
+import { Spin } from "./spin";
 import type { Look } from "./style";
 
 const FOV = (30 * Math.PI) / 180;
@@ -22,6 +23,7 @@ const PUMP = 0.7; // size kick of a snare hit
 const PUMP_STIFF = 160;
 const PUMP_DAMPING = 12;
 const THROB = 0.09; // size swing with the bass line's envelope
+const WHIRL = 15; // rad/s of hand spin at which it bulges and sloshes the most
 const SNARE_ATTACK = 0.03; // s; spikes grow in rather than pop
 const SNARE_RELEASE = 0.15; // s
 const TEXTURE_SIZE = 512;
@@ -32,7 +34,7 @@ const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
 
 const UNIFORMS = [
   "uProj", "uDist", "uTime", "uMorph", "uLevel", "uWobble", "uKick", "uKickAge", "uSnare", "uDrop", "uBass", "uGrowl",
-  "uGain", "uSpike", "uStep", "uTwist", "uRipple", "uShock", "uScale", "uLift", "uJelly", "uPointer",
+  "uGain", "uSpike", "uStep", "uTwist", "uRipple", "uShock", "uScale", "uLift", "uJelly", "uPointer", "uRot", "uFront",
   "uArt", "uAccent", "uHue", "uIri", "uMetal", "uHeat",
 ] as const;
 
@@ -40,6 +42,8 @@ export class LiquidBlob {
   readonly canvas = document.createElement("canvas");
   /// Called once if the GPU drops the context; the page then falls back to plain art.
   onLost: (() => void) | null = null;
+  /// Turning it by hand.
+  readonly spin = new Spin();
   private gl: WebGL2RenderingContext;
   private u = {} as Record<(typeof UNIFORMS)[number], WebGLUniformLocation | null>;
   private vao: WebGLVertexArrayObject;
@@ -100,6 +104,9 @@ export class LiquidBlob {
     gl.uniformMatrix4fv(this.u.uProj, false, perspective(FOV, 1, 0.1, 20));
     gl.uniform1f(this.u.uDist, DIST);
     gl.enable(gl.DEPTH_TEST);
+    // The edge fades into the page; the canvas is premultiplied.
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
   }
 
@@ -138,6 +145,7 @@ export class LiquidBlob {
     this.ready = false;
     this.morph = 0;
     this.slow = 0;
+    this.spin.reset();
     const source = await artwork(art, initial).catch(() => artwork(null, initial));
     if (gen !== this.gen || this.gl.isContextLost()) return false;
     const gl = this.gl;
@@ -162,7 +170,7 @@ export class LiquidBlob {
   }
 
   /// Draw one frame. Returns true while it still moves without music (morphing in,
-  /// settling, following the pointer).
+  /// settling, spinning, following the pointer).
   frame(f: Features, dt: number, playing: boolean): boolean {
     const look = this.look;
     if (!look || !this.ready) return false;
@@ -183,6 +191,7 @@ export class LiquidBlob {
     this.time += dt * look.flow * (playing ? 0.6 + 0.8 * f.wobble + 0.6 * f.drop : 0.25);
     const k = 1 - Math.exp(-dt / 0.15);
     for (let i = 0; i < 4; i++) this.pointer[i] += (this.pointerGoal[i] - this.pointer[i]) * k;
+    const spinning = this.spin.step(dt);
     const moving = this.bounce(f, dt, look);
 
     const u = this.u;
@@ -208,12 +217,16 @@ export class LiquidBlob {
     gl.uniform1f(u.uHeat, look.heat);
     gl.uniform1f(u.uHue, look.hue);
     gl.uniform3fv(u.uAccent, this.accent);
-    gl.uniform4fv(u.uPointer, this.pointer);
+    // The pointer and the front are in view space; the noise turns with the drop.
+    const [px, py, pz, pw] = this.pointer;
+    gl.uniform4f(u.uPointer, ...this.spin.toObject(px, py, pz), pw);
+    gl.uniform3f(u.uFront, ...this.spin.toObject(0, 0, 1));
+    gl.uniformMatrix3fv(u.uRot, false, this.spin.matrix);
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.bindVertexArray(this.vao);
     gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0);
-    return this.morph < 1 || moving || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
+    return this.morph < 1 || moving || spinning || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
   }
 
   /// Step the springs and set the jump uniforms. True while they still move.
@@ -236,11 +249,13 @@ export class LiquidBlob {
     const stretch = 1 + Math.min(0.18, Math.max(-0.15, jump[1] * STRETCH + Math.min(0, jump[0]) * 1.2));
     // Each "womb" of the bass line swells the whole drop.
     const size = 1 + pump[0] + THROB * look.throb * f.bass;
-    const side = size / Math.sqrt(stretch);
+    // Spun fast it flattens out a little, like dough, and sloshes.
+    const whirl = Math.min(1, this.spin.speed / WHIRL);
+    const side = (size / Math.sqrt(stretch)) * (1 + 0.08 * whirl);
     const u = this.u;
-    this.gl.uniform3f(u.uScale, side, size * stretch, side);
+    this.gl.uniform3f(u.uScale, side, size * stretch * (1 - 0.06 * whirl), side);
     this.gl.uniform1f(u.uLift, Math.max(0, jump[0]));
-    this.gl.uniform1f(u.uJelly, Math.min(1, Math.abs(jump[1]) * 0.4 + Math.abs(pump[1]) * 0.6));
+    this.gl.uniform1f(u.uJelly, Math.min(1, Math.abs(jump[1]) * 0.4 + Math.abs(pump[1]) * 0.6 + 0.5 * whirl));
     return Math.abs(jump[0]) + Math.abs(jump[1]) + Math.abs(pump[1]) > 0.002;
   }
 

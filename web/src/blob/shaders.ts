@@ -1,6 +1,6 @@
 // GLSL for the liquid artwork drop. The vertex shader moves a unit sphere with
-// noise driven by the music; the fragment shader shows the artwork through the
-// surface, with a rim in the card's accent colour.
+// noise driven by the music and turns it as spin.ts says; the fragment shader shows
+// the artwork through the surface, glossy with the card's accent colour.
 
 // 3D simplex noise by Ian McEwan and Stefan Gustavson (Ashima Arts), MIT licence:
 // https://github.com/ashima/webgl-noise
@@ -72,10 +72,12 @@ uniform vec3 uScale;    // squash and stretch
 uniform float uLift;    // upwards
 uniform float uJelly;   // extra wobble while a jump rings out, 0..1
 uniform vec4 uPointer;  // direction on the sphere, strength
+uniform mat3 uRot;      // turned by hand, object to view space
+uniform vec3 uFront;    // towards the viewer, in object space
 
 out vec3 vPos;     // view space
 out vec3 vNormal;  // view space
-out vec2 vFlat;    // front projection of the resting sphere, for the artwork
+out vec3 vObj;     // the resting sphere; its front projection carries the artwork
 
 ${NOISE}
 
@@ -98,7 +100,7 @@ float disp(vec3 p) {
   float n = snoise(q * 2.4 - vec3(0.0, t * 0.6, t * 0.9));
   float spikes = pow(max(n, 0.0), 3.0) * (0.05 + 0.25 * uSnare + 0.15 * uGrowl * uBass + 0.1 * uDrop) * uSpike;
   // After each kick a wave runs from the front of the drop round to the back.
-  float angle = acos(clamp(p.z, -1.0, 1.0));
+  float angle = acos(clamp(dot(p, uFront), -1.0, 1.0));
   float wave = exp(-pow((angle - uKickAge * 5.0) * 1.8, 2.0)) * exp(-uKickAge * 2.8) * 0.09 * uShock;
   float dent = -0.18 * uPointer.w * exp(-pow(distance(p, uPointer.xyz) * 2.2, 2.0));
   return clamp((lobes + sway + ripples + spikes + wave) * uGain + dent, -0.3, 0.4);
@@ -119,9 +121,9 @@ void main() {
   vec3 s = shape(p);
   vec3 n = normalize(cross(shape(normalize(p + t1 * e)) - s, shape(normalize(p + t2 * e)) - s));
   if (dot(n, p) < 0.0) n = -n;
-  vPos = s * uScale + vec3(0.0, uLift, -uDist);
-  vNormal = normalize(n / uScale);
-  vFlat = p.xy;
+  vPos = uRot * s * uScale + vec3(0.0, uLift, -uDist);
+  vNormal = normalize(uRot * n / uScale);
+  vObj = p;
   gl_Position = uProj * vec4(vPos, 1.0);
 }
 `;
@@ -131,7 +133,7 @@ precision highp float;
 
 in vec3 vPos;
 in vec3 vNormal;
-in vec2 vFlat;
+in vec3 vObj;
 
 uniform sampler2D uArt;
 uniform vec3 uAccent;
@@ -155,19 +157,31 @@ void main() {
   float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
   // Looking through the surface bends the artwork like water does.
   vec2 bend = n.xy * (0.22 + 0.1 * uDrop) * uMorph;
-  vec2 uv = 0.5 + vec2(vFlat.x, -vFlat.y) * 0.48 - vec2(bend.x, -bend.y) * 0.5;
+  vec2 uv = 0.5 + vec2(vObj.x, -vObj.y) * 0.48 - vec2(bend.x, -bend.y) * 0.5;
   vec2 split = n.xy * (0.004 + 0.02 * uKick + 0.008 * uGrowl * uBass) * uMorph;
-  vec3 art = vec3(texture(uArt, uv + split).r, texture(uArt, uv).g, texture(uArt, uv - split).b);
+  // Turned sideways the projection smears; blur it into flowing colour instead.
+  float blur = 4.0 * pow(1.0 - abs(vObj.z), 3.0) * uMorph;
+  vec3 art = vec3(texture(uArt, uv + split, blur).r, texture(uArt, uv, blur).g, texture(uArt, uv - split, blur).b);
   art = mix(art, smoothstep(0.0, 1.0, art), 0.6 * uDrop);
 
   vec3 light = normalize(vec3(-0.5, 0.7, 0.6));
   float spec = pow(max(dot(n, normalize(light + v)), 0.0), mix(40.0, 140.0, uMetal)) * mix(0.35, 0.8, uMetal);
-  vec3 rim = hueRotate(uAccent, uHue + uIri * (fres * 3.0 + uTime * 0.3));
+  // The hue sways around the accent but never leaves it, so the drop stays in the
+  // card's colours.
+  vec3 rim = hueRotate(uAccent, uHue + uIri * (fres + 0.5 * sin(uTime * 0.3)));
   rim = mix(rim, vec3(1.0, 0.35, 0.1), uHeat * 0.6);
 
   vec3 col = art * mix(1.0, 0.45, fres * uMorph);
   col += rim * fres * (0.5 + 0.7 * uKick + 0.4 * uDrop + 0.5 * uBass) * uMorph;
   col += spec * uMorph;
-  outColor = vec4(col, 1.0);
+  // Gloss: a dark room lit by the accent from above, and one soft window. They stay
+  // put while the surface turns under them, which is what makes a spin read.
+  vec3 r = reflect(-v, n);
+  vec3 env = mix(vec3(0.015), uAccent * 0.5, pow(smoothstep(-0.4, 1.0, r.y), 2.0));
+  env += 0.5 * smoothstep(0.92, 0.985, dot(r, normalize(vec3(-0.5, 0.7, 0.5))));
+  col += env * (0.1 + 0.5 * fres) * uMorph;
+  // The very edge fades out, so the drop sits in the page instead of on it.
+  float a = 1.0 - 0.9 * smoothstep(0.8, 1.0, fres) * uMorph;
+  outColor = vec4(col * a, a);
 }
 `;

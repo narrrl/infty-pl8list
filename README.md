@@ -159,8 +159,9 @@ Single-letter keys clash with vim-key browser extensions (Vimium and the like), 
 - `blob/`: the liquid artwork. One WebGL2 canvas moves into the playing card: an icosphere
   displaced by noise driven by those features (lobes, ripples, snare spikes, a ring after each
   kick), showing the artwork through its surface. Tempo, tags and key set its character
-  (`blob/style.ts`). It steps its quality down on slow devices and falls back to the plain
-  artwork without WebGL2, with reduced motion, or with visuals set to simple.
+  (`blob/style.ts`). Dragging it spins it; a flick keeps spinning and springs back to face
+  the front (`blob/spin.ts`). It steps its quality down on slow devices and falls back to the
+  plain artwork without WebGL2, with reduced motion, or with visuals set to simple.
 - `visual.ts`: runs both per frame, plus `--energy` (kick-driven) for the CSS glow.
 - `station.ts`: the radio sheet.
 - `color.ts`: each card's accent colour (`--card-accent`) from the artist image.

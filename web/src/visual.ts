@@ -15,6 +15,8 @@ import type { Player } from "./player";
 
 export type VisualsSetting = "liquid" | "simple";
 const VISUALS_KEY = "pl8inf.visuals";
+const SLOP = 8; // px before a press on the drop turns it
+const REACH = 1.2; // how far past the art's radius the drop can be grabbed
 
 export class Visualizer {
   private raf = 0;
@@ -26,6 +28,9 @@ export class Visualizer {
   private reduced = matchMedia("(prefers-reduced-motion: reduce)");
   private setting: VisualsSetting = localStorage.getItem(VISUALS_KEY) === "simple" ? "simple" : "liquid";
   private debug: ((f: Features) => void) | null = null;
+  /// A press on the drop; `on` once it moved enough to turn it.
+  private grab: { id: number; x: number; y: number; on: boolean } | null = null;
+  private spun = false;
 
   constructor(
     private player: Player,
@@ -33,8 +38,17 @@ export class Visualizer {
   ) {
     document.addEventListener("visibilitychange", () => (document.hidden ? this.stop() : this.start()));
     this.reduced.addEventListener("change", () => this.attach(this.card, true));
-    for (const ev of ["pointermove", "pointerdown"]) document.addEventListener(ev, (e) => this.pointer(e as PointerEvent, true), { passive: true });
-    for (const ev of ["pointerup", "pointercancel", "pointerleave"]) document.addEventListener(ev, (e) => this.pointer(e as PointerEvent, false), { passive: true });
+    // Capturing, so a turn can keep its moves from the pager.
+    const on = { capture: true, passive: true };
+    document.addEventListener("pointerdown", (e) => this.down(e), on);
+    document.addEventListener("pointermove", (e) => this.move(e), on);
+    for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, (e) => this.up(e as PointerEvent), on);
+    document.addEventListener("pointerleave", (e) => this.pointer(e, false), { passive: true });
+    // A turn is not a tap: no play/pause after it.
+    document.addEventListener("click", (e) => {
+      if (this.spun) e.stopPropagation();
+      this.spun = false;
+    }, true);
     if (new URLSearchParams(location.search).get("debug") === "audio") {
       import("./debug").then((m) => { this.debug = m.audioDebug(); });
     }
@@ -71,7 +85,8 @@ export class Visualizer {
     if (this.card === card && !again) return;
     if (this.card && this.card !== card) {
       this.card.el?.style.setProperty("--energy", "0");
-      this.card.el?.classList.remove("liquid");
+      this.card.el?.classList.remove("liquid", "turning");
+      this.grab = null;
     }
     this.card = card;
     const blob = this.liquid();
@@ -105,14 +120,76 @@ export class Visualizer {
     this.raf = 0;
   }
 
+  /// The drop on screen: its centre and the art's radius, in px. Null while it
+  /// does not show.
+  private where(): { x: number; y: number; radius: number } | null {
+    const blob = this.blob;
+    if (!blob?.canvas.isConnected || !this.card?.el?.classList.contains("liquid")) return null;
+    const r = blob.canvas.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, radius: r.width / SPILL / 2 };
+  }
+
   /// Pointer over the drop pushes a dent into it.
   private pointer(e: PointerEvent, on: boolean): void {
-    const blob = this.blob;
-    if (!blob?.canvas.isConnected) return;
-    const r = blob.canvas.getBoundingClientRect();
-    const radius = r.width / SPILL / 2;
-    blob.setPointer((e.clientX - r.left - r.width / 2) / radius, -(e.clientY - r.top - r.height / 2) / radius, on);
+    const at = this.where();
+    if (!at) return;
+    this.blob!.setPointer((e.clientX - at.x) / at.radius, -(e.clientY - at.y) / at.radius, on);
     if (on) this.start();
+  }
+
+  // Dragging the drop turns it. On touch only a sideways drag does, as up and
+  // down turn the page; a mouse can turn it any way.
+
+  private down(e: PointerEvent): void {
+    this.pointer(e, true);
+    const at = this.where();
+    if (this.grab || !at || (e.pointerType === "mouse" && e.button !== 0)) return;
+    if ((e.target as Element).closest("button, a, input, .wave-wrap")) return;
+    if (Math.hypot(e.clientX - at.x, e.clientY - at.y) > at.radius * REACH) return;
+    this.grab = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false };
+  }
+
+  private move(e: PointerEvent): void {
+    this.pointer(e, true);
+    const g = this.grab;
+    const at = this.where();
+    if (!g || e.pointerId !== g.id) return;
+    if (!at) {
+      this.grab = null;
+      return;
+    }
+    const dx = e.clientX - g.x, dy = e.clientY - g.y;
+    if (!g.on) {
+      if (Math.hypot(dx, dy) < SLOP) return;
+      if (e.pointerType !== "mouse" && Math.abs(dy) >= Math.abs(dx)) {
+        this.grab = null;
+        return;
+      }
+      g.on = true;
+      // Keep the moves when the mouse leaves the window.
+      document.documentElement.setPointerCapture(e.pointerId);
+      this.blob!.spin.hold(true);
+      this.card?.el?.classList.add("turning");
+    }
+    e.stopPropagation();
+    this.blob!.spin.turn(dx / at.radius, -dy / at.radius, performance.now());
+    g.x = e.clientX;
+    g.y = e.clientY;
+    this.start();
+  }
+
+  private up(e: PointerEvent): void {
+    this.pointer(e, false);
+    const g = this.grab;
+    if (!g || e.pointerId !== g.id) return;
+    this.grab = null;
+    if (!g.on) return;
+    this.blob?.spin.hold(false);
+    this.card?.el?.classList.remove("turning");
+    this.spun = e.type === "pointerup";
+    // The click, if any, comes right after.
+    setTimeout(() => (this.spun = false), 350);
+    this.start();
   }
 
   private frame = (now: number) => {
