@@ -3,7 +3,8 @@
 services:
   app:
     environment:
-      TRUST_PROXY: "1"
+      TRUSTED_PROXY_HOPS: "1"
+      PUBLIC_ORIGIN: "https://pl8.narl.io"
     ports: !reset []
     networks:
       - narl

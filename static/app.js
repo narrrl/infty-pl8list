@@ -16,6 +16,8 @@ const filtersForm = document.getElementById("filters");
 const filtersBtn = document.getElementById("filters-btn");
 const likesPanel = document.getElementById("likes");
 const likesBtn = document.getElementById("likes-btn");
+const accountPanel = document.getElementById("account");
+const accountBtn = document.getElementById("account-btn");
 const startEl = document.getElementById("start");
 const helpEl = document.getElementById("help");
 const toastEl = document.getElementById("toast");
@@ -86,6 +88,8 @@ function showStats(s) {
 // Uploads are often titled after their file name.
 const cleanTitle = (t) => t.replace(/\.(wav|mp3|flac|aiff?|ogg|m4a)$/i, "");
 const trackUrl = (t) => `${PL8}/${t.handle}/${t.slug}`;
+// Images come through our server, so pl8list never sees the visitor's address.
+const artistImg = (t) => `/img/${encodeURIComponent(t.artist_img)}`;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 let toastTimer = 0;
@@ -100,7 +104,7 @@ function toast(text, ms = 2200) {
 
 function buildCard(track, { liked = false } = {}) {
   const el = tpl.content.firstElementChild.cloneNode(true);
-  const img = track.artist_img ? `url("${PL8}/img/${track.artist_img}")` : "";
+  const img = track.artist_img ? `url("${artistImg(track)}")` : "";
   el.querySelector(".bg").style.backgroundImage = img;
   if (img) el.querySelector(".art").style.backgroundImage = img;
   else el.querySelector(".initial").textContent = (track.artist_name || "?")[0].toUpperCase();
@@ -377,7 +381,7 @@ const observer = new IntersectionObserver((entries) => {
 function updateMediaSession(track) {
   if (!("mediaSession" in navigator)) return;
   const artwork = [{ src: "/static/icons/icon-512.png", sizes: "512x512", type: "image/png" }];
-  if (track.artist_img) artwork.unshift({ src: `${PL8}/img/${track.artist_img}`, sizes: "512x512" });
+  if (track.artist_img) artwork.unshift({ src: artistImg(track), sizes: "512x512" });
   navigator.mediaSession.metadata = new MediaMetadata({
     title: cleanTitle(track.title),
     artist: track.artist_name,
@@ -471,7 +475,7 @@ feed.addEventListener("click", (e) => {
 
 // Panels and overlays -----------------------------------------------------
 
-const panels = [[filtersForm, filtersBtn], [likesPanel, likesBtn]];
+const panels = [[filtersForm, filtersBtn], [likesPanel, likesBtn], [accountPanel, accountBtn]];
 
 function closePanels() {
   for (const [panel, btn] of panels) {
@@ -692,15 +696,48 @@ document.getElementById("resend").addEventListener("click", () => {
 
 document.getElementById("restart").addEventListener("click", showLogin);
 
+// Account -----------------------------------------------------------------
+
+const deleteForm = document.getElementById("delete-form");
+
+accountBtn.addEventListener("click", () => {
+  if (togglePanel(accountPanel)) deleteForm.hidden = true;
+});
+
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await postJSON("/auth/logout");
   location.reload();
 });
 
+document.getElementById("logout-all-btn").addEventListener("click", async () => {
+  await postJSON("/account/logout-all");
+  location.reload();
+});
+
+document.getElementById("delete-open").addEventListener("click", () => {
+  deleteForm.hidden = false;
+  deleteForm.confirm.value = "";
+  deleteForm.confirm.focus();
+});
+
+deleteForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await postJSON("/account/delete", { confirm: deleteForm.confirm.value.trim() });
+    localStorage.removeItem(FILTERS_KEY);
+    localStorage.removeItem(HINT_KEY);
+    location.reload();
+  } catch (err) {
+    toast(err.message, 4000);
+  }
+});
+
 function signedIn(user) {
   loginEl.hidden = true;
   document.getElementById("bar").hidden = false;
-  document.getElementById("logout-btn").textContent = `sign out @${user.handle}`;
+  accountBtn.textContent = `@${user.handle}`;
+  document.getElementById("account-handle").textContent = `@${user.handle}`;
+  document.getElementById("delete-handle").textContent = user.handle;
   // Typing the login code counts as a user gesture, so playback may start right away.
   if (navigator.userActivation?.hasBeenActive) start();
   else if (!started) startEl.hidden = false;

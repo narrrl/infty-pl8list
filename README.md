@@ -23,11 +23,20 @@ Not affiliated with pl8list.
 docker compose up -d --build       # http://127.0.0.1:8790
 ```
 
-or without Docker (Python 3.11+, no dependencies):
+or without Docker (Rust 1.85+):
 
 ```sh
-python3 server.py
+cd backend && cargo run --release   # serves ../static, embedded at build time
+cargo test                          # unit tests + API tests against a fake pl8list
 ```
+
+The server is the Rust crate in `backend/`. The old Python server (`server.py` and friends)
+still works on the same database and is kept until the Rust one has run in production for a
+while; `python3 server.py` starts it.
+
+Before going public in Germany, set the Impressum variables below. `/impressum` and
+`/datenschutz` are filled in from them at startup; the texts are in `backend/templates/`.
+Have them checked: they are a careful draft, not legal advice.
 
 `compose.override.yaml` puts it behind Traefik at `pl8.narl.io` on the external `narl`
 network, the same way as the other narl.io services. Docker Compose picks it up
@@ -40,7 +49,13 @@ Data (catalogue, users, listening history) lives in the `data` volume as one SQL
 | `HOST`        | `127.0.0.1`        | bind address (`0.0.0.0` in the image)             |
 | `PORT`        | `8790`             | port                                              |
 | `PL8_DB`      | `./pl8list.db`     | SQLite path (`/data/pl8list.db` in the image)     |
-| `TRUST_PROXY` | `0`                | `1` behind a reverse proxy: use `X-Forwarded-For` for rate limits and `X-Forwarded-Proto` for `Secure` cookies |
+| `TRUSTED_PROXY_HOPS` | `0`         | reverse proxies in front that append to `X-Forwarded-For` (`TRUST_PROXY=1` also means 1) |
+| `PUBLIC_ORIGIN` | unset            | `https://host` of the site; POSTs with any other `Origin` are refused |
+| `CACHE_DIR`   | `cache` next to DB | disk cache for audio segments and artist images   |
+| `CACHE_MAX_MB` | `2048`            | cache size limit, least recently used files go first |
+| `INSECURE_COOKIES` | `0`           | `1` only for plain-http development from another machine |
+| `IMPRESSUM_NAME`, `IMPRESSUM_ADDRESS`, `IMPRESSUM_EMAIL`, `IMPRESSUM_PHONE` | empty | operator details for `/impressum` and `/datenschutz`; separate address lines with `\|` |
+| `HOSTING_PROVIDER` | empty         | hosting company and address, named in the privacy policy |
 
 ## Accounts
 
@@ -50,12 +65,25 @@ There are no passwords here. Users sign in with the email of their pl8list accou
    them a 6-digit code.
 2. The user types the code. The server passes it to pl8list. If pl8list accepts it, the
    server reads the user's pl8list id and handle, creates a local account, and sets its
-   own session cookie (`pl8inf`, HttpOnly, 90 days).
+   own session cookie (`__Host-pl8inf`, Secure, HttpOnly, SameSite=Lax). It ends after 30 days
+   without use and gets a new token every 7 days.
 
 The pl8list session from step 2 is used once, in memory, to read the user's personal pl8list
-feed (artists in their library). It is never written to disk. Only a SHA-256 hash of the
-local session token is stored. Logins are rate-limited to 5 per IP and 3 per email per
-15 minutes, with at most 5 code attempts per login.
+feed (artists in their library). It is never written to disk, and when the feed has been
+read (or reading it fails) the server logs that session out at pl8list. Only a SHA-256 hash
+of the local session token is stored.
+
+Every login start and resend makes pl8list send a mail, so they are rate-limited: 5 per IP
+and 3 per email per 15 minutes, 30 per 10 minutes for the whole server, at most 2 resends
+and 5 code attempts per login, and at most 500 logins pending at once. Behind a proxy
+(`TRUSTED_PROXY_HOPS=1`) the client IP is the last `X-Forwarded-For` entry, the one the proxy
+added; IPv6 addresses are limited per /64.
+
+The "account" menu lets users download everything stored about them (JSON), sign out on all
+devices, or delete their account (likes, history and sessions, right away). Expired sessions
+are purged hourly and "served" events after 180 days. The browser only ever talks to this
+server: hls.js is self-hosted in `static/vendor/` and audio and images are proxied, so no
+visitor address reaches pl8list or a CDN.
 
 ## Controls
 
@@ -92,7 +120,7 @@ pl8list has no public API, but it is a Remix app: every page loader returns JSON
 | `/api/<handle>/<slug>/hls/playlist.m3u8?v=<uploadId>[&preview=true]` | HLS audio                           |
 | `/login`, `/verify?email=…&mode=login`                               | email + 6-digit code login          |
 
-**Crawler** (`crawler.py`). There is no "all tracks" listing, so one shared catalogue grows by
+**Crawler** (`backend/src/crawler.rs`). There is no "all tracks" listing, so one shared catalogue grows by
 snowballing: home sections, the ticker, best-selling artists and artist search give artists;
 artist pages give tracks; related pages pull in neighbours. Artists are re-checked daily for
 new uploads. Requests are throttled to about 1.4 per second while someone has used the app in
@@ -100,12 +128,15 @@ the last 30 minutes, or while the catalogue has fewer than 500 tracks. Otherwise
 one request every 20 seconds. When a user likes or finishes a track, its related tracks and
 its artist's catalogue are crawled first.
 
-**Ranking** (`ranker.py`). Each track the user has not seen yet gets a score from popularity,
+**Ranking** (`backend/src/ranker.rs`). Each track the user has not seen yet gets a score from popularity,
 freshness, artist affinity (from their likes, completions, skips and "not for me"), closeness to the BPM and
 key of tracks they liked, whether it is related to something they liked, and some random
 exploration. Artists are then spread out so you don't get five tracks from one person in a
-row. Tune `WEIGHTS` at the top of the file.
+row. Weights live in a `Ranker`; `?mode=` on `/local/feed` picks one, so discovery modes
+can be added next to `Classic`.
 
 **Audio.** The browser only talks to this server. HLS playlists and segments are proxied from
 pl8list as a guest, so users hear previews of paid tracks and full free tracks, the same as a
-logged-out visitor on pl8list.
+logged-out visitor on pl8list. Segments and images are cached on disk, so a repeat play costs
+pl8list nothing. Segment URLs carry a signed token; only tokens seen in a playlist we fetched
+ourselves are used as cache keys, so a forged token can't pull another track out of the cache.

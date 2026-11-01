@@ -3,7 +3,9 @@
 *.db
 *.db-*
 __pycache__/
+*.py
 docs/
 README.md
 compose*.yaml
 Dockerfile
+backend/target/

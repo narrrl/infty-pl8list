@@ -55,7 +55,7 @@ button {
 .logo b { color: var(--accent); }
 #stats { color: var(--muted); font-size: 0.8rem; }
 #help-btn { width: 2.2em; padding: 0.35em 0; }
-#logout-btn { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#account-btn { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #filters-btn.active::after {
   content: "";
   display: inline-block;
@@ -113,6 +113,16 @@ button {
   place-items: center;
 }
 #likes li .play-now svg { width: 0.9rem; height: 0.9rem; }
+
+#account { width: min(20rem, calc(100vw - 2rem)); display: flex; flex-direction: column; align-items: flex-start; gap: 0.7rem; }
+#account h2 { margin: 0; font-size: 1rem; }
+#account a { font-size: 0.85rem; color: var(--muted); }
+#delete-form { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; }
+#delete-form label { color: var(--muted); font-size: 0.85rem; }
+#delete-form input { padding: 0.4em 0.6em; border-radius: 8px; border: 1px solid #444; background: #111; }
+.link.danger { color: var(--accent); }
+button.danger:not(.link) { background: var(--accent); border: none; color: #fff; font-weight: 600; }
+.legal-links a { color: inherit; }
 
 /* Feed ------------------------------------------------------------------- */
 
@@ -426,6 +436,14 @@ button {
 #login-error { margin: 0; min-height: 1.2em; color: var(--accent); font-size: 0.9rem; }
 .fineprint { margin: 0; color: #666; font-size: 0.75rem; }
 
+/* Impressum and privacy pages -------------------------------------------- */
+
+html:has(body.legal), body.legal { height: auto; overflow: auto; }
+body.legal main { max-width: 42rem; margin: 0 auto; padding: 2rem 1.2rem 4rem; line-height: 1.6; }
+body.legal h1 { font-size: 1.8rem; }
+body.legal h2 { font-size: 1.1rem; margin-top: 2rem; }
+body.legal a { color: var(--accent); }
+
 /* Phones ----------------------------------------------------------------- */
 
 @media (max-width: 640px) {
@@ -433,7 +451,7 @@ button {
   #bar { gap: 0.4rem; padding-left: 0.7rem; padding-right: 0.7rem; }
   #bar button { padding: 0.3em 0.7em; font-size: 0.85rem; }
   #help-btn { display: none; }
-  #logout-btn { max-width: 6.5rem; }
+  #account-btn { max-width: 6.5rem; }
   .panel { left: 0.7rem; right: 0.7rem; }
   #likes { width: auto; }
   .content { width: calc(100vw - 2rem); margin-bottom: 4.5rem; }

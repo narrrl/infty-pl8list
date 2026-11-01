@@ -14,9 +14,9 @@
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js"
-          integrity="sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn"
-          crossorigin="anonymous"></script>
+  <!-- Served by us, not a CDN, so no visitor address goes to a third party. -->
+  <script src="/static/vendor/hls.min.js"
+          integrity="sha384-5E8B0pTlZZJMabWpC0fyYf6OUpe15jJij34BqBAh4NXoHAlLNOjCPRrwtOXOQFAn"></script>
 </head>
 <body>
   <!-- Shared icons, referenced with <use href="#i-…">. -->
@@ -36,7 +36,7 @@
     <button id="filters-btn" type="button" aria-controls="filters" aria-expanded="false">filters</button>
     <button id="likes-btn" type="button" aria-controls="likes" aria-expanded="false">likes</button>
     <button id="help-btn" type="button" title="shortcuts (?)" aria-label="help">?</button>
-    <button id="logout-btn" type="button" title="sign out"></button>
+    <button id="account-btn" type="button" aria-controls="account" aria-expanded="false" title="account"></button>
   </header>
 
   <div id="login" hidden>
@@ -61,7 +61,12 @@
       <p id="login-error" role="alert"></p>
       <p class="fineprint">
         No account? <a href="https://pl8list.com/signup" target="_blank" rel="noopener">sign up on pl8list</a>.
-        This site is not affiliated with pl8list. It never stores your pl8list login.
+        This site is not affiliated with pl8list. Your email and code go to pl8list, which signs this
+        server in for you. We use that pl8list login once to read your library, then log it out; it is
+        never stored. We keep your pl8list handle and what you play and like, to pick tracks for you.
+      </p>
+      <p class="fineprint legal-links">
+        <a href="/datenschutz">Datenschutz / privacy</a> · <a href="/impressum">Impressum</a>
       </p>
     </div>
   </div>
@@ -77,6 +82,23 @@
   <aside id="likes" class="panel" hidden>
     <h2>likes</h2>
     <ol id="likes-list"></ol>
+  </aside>
+
+  <aside id="account" class="panel" hidden>
+    <h2 id="account-handle"></h2>
+    <button type="button" id="logout-btn">sign out</button>
+    <button type="button" id="logout-all-btn" class="link">sign out on all devices</button>
+    <a href="/account/export" download>download my data</a>
+    <button type="button" id="delete-open" class="link danger">delete account…</button>
+    <form id="delete-form" hidden>
+      <label for="delete-confirm">This deletes your likes and listening history here, right away.
+        Your pl8list account is not touched. Type <b id="delete-handle"></b> to confirm.</label>
+      <input id="delete-confirm" name="confirm" autocomplete="off" required>
+      <button type="submit" class="danger">delete my account</button>
+    </form>
+    <p class="fineprint legal-links">
+      <a href="/datenschutz">Datenschutz / privacy</a> · <a href="/impressum">Impressum</a>
+    </p>
   </aside>
 
   <main id="feed"></main>
