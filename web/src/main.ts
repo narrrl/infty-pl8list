@@ -39,6 +39,11 @@ const radioEnd = $("radio-end");
 
 const player = new Player();
 const visual = new Visualizer(player, isTouch);
+
+// Installable as an app; see public/sw.js. The dev server has no /sw.js.
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((err) => console.warn("no service worker:", err));
+}
 const cards: Card[] = [];
 let active = -1;
 let loading = false;

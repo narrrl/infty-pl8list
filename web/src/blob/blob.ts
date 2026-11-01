@@ -26,8 +26,8 @@ const THROB = 0.09; // size swing with the bass line's envelope
 const WHIRL = 15; // rad/s of hand spin at which it bulges and sloshes the most
 const SNARE_ATTACK = 0.03; // s; spikes grow in rather than pop
 const SNARE_RELEASE = 0.15; // s
-// The play/pause icon: pausing pops up the bars, which melt into the play triangle;
-// playing melts the triangle back into the bars as they fade.
+// The play/pause icon: pausing shows the bars, which turn into the play triangle;
+// playing turns the triangle back into the bars as they fade.
 const ICON_MELT = 0.35; // s the bars show before turning into the triangle
 const ICON_FADE = 0.3; // s the bars show after playing starts
 const TEXTURE_SIZE = 512;

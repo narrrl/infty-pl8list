@@ -2,6 +2,7 @@
   "name": "pl8list ∞",
   "short_name": "pl8 ∞",
   "description": "Endless scroll through pl8list, tuned to what you like.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

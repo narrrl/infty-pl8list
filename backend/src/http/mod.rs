@@ -294,6 +294,11 @@ async fn static_route(Path(path): Path<String>) -> Response {
     static_file(&path)
 }
 
+/// The service worker, at the root so its scope covers the whole app.
+async fn service_worker() -> Response {
+    static_file("sw.js")
+}
+
 async fn healthz() -> Response {
     (no_store(), Json(json!({ "ok": true }))).into_response()
 }
@@ -305,6 +310,7 @@ pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/static/{*path}", get(static_route))
+        .route("/sw.js", get(service_worker))
         .route("/healthz", get(healthz))
         .route("/impressum", get(legal::impressum))
         .route("/datenschutz", get(legal::datenschutz))

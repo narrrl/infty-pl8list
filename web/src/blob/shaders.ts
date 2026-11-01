@@ -54,18 +54,18 @@ float snoise(vec3 v) {
 }
 `;
 
-// The play/pause icon on the front of the drop, as a distance in units of the radius
-// (negative inside). `shape` 0 is the pause bars, 1 the play triangle; between them
-// one melts into the other.
+// The play/pause icon on the front of the drop, as distances in units of the radius
+// (negative inside), with rounded corners like the page's icons.
 const ICON = /* glsl */ `
 float sdBox(vec2 p, vec2 b) {
   vec2 d = abs(p) - b;
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
 }
 
-// Inigo Quilez's equilateral triangle, MIT licence; turned to point right.
+// Inigo Quilez's equilateral triangle, MIT licence; turned to point right and
+// moved right a little, so it looks centred.
 float sdPlay(vec2 p, float r) {
-  p = vec2(-p.y, p.x + 0.08);
+  p = vec2(-p.y, p.x - 0.035);
   const float k = sqrt(3.0);
   p.x = abs(p.x) - r;
   p.y = p.y + r / k;
@@ -74,9 +74,12 @@ float sdPlay(vec2 p, float r) {
   return -length(p) * sign(p.y);
 }
 
-float icon(vec2 p, float shape) {
-  float bars = sdBox(vec2(abs(p.x) - 0.15, p.y), vec2(0.07, 0.24));
-  return mix(bars, sdPlay(p, 0.24), shape) - 0.03;
+float sdPause(vec2 p) {
+  return sdBox(vec2(abs(p.x) - 0.1, p.y), vec2(0.035, 0.15)) - 0.025;
+}
+
+float sdPlayIcon(vec2 p) {
+  return sdPlay(p, 0.15) - 0.03;
 }
 `;
 
@@ -100,15 +103,13 @@ uniform float uJelly;   // extra wobble while a jump rings out, 0..1
 uniform vec4 uPointer;  // direction on the sphere, strength
 uniform mat3 uRot;      // turned by hand, object to view space
 uniform vec3 uFront;    // towards the viewer, in object space
-uniform float uIcon;    // play/pause, see ICON
-uniform float uIconA;   // how much it shows
+uniform float uIconA;   // how much the play/pause icon shows, see ICON
 
 out vec3 vPos;     // view space
 out vec3 vNormal;  // view space
 out vec3 vObj;     // the resting sphere; its front projection carries the artwork
 
 ${NOISE}
-${ICON}
 
 // Every layer keeps a floor, so the drop never goes still and nothing snaps in from
 // nothing; the music only turns each layer up and down.
@@ -132,9 +133,8 @@ float disp(vec3 p) {
   float angle = acos(clamp(dot(p, uFront), -1.0, 1.0));
   float wave = exp(-pow((angle - uKickAge * 5.0) * 1.8, 2.0)) * exp(-uKickAge * 2.8) * 0.09 * uShock;
   float dent = -0.18 * uPointer.w * exp(-pow(distance(p, uPointer.xyz) * 2.2, 2.0));
-  // The icon stands out of the front like a stamp, and turns with the drop.
-  float stamp = (1.0 - smoothstep(-0.02, 0.05, icon(p.xy, uIcon))) * smoothstep(0.3, 0.6, p.z) * uIconA;
-  return clamp((lobes + sway + ripples + spikes + wave) * uGain + dent, -0.3, 0.4) * (1.0 - 0.6 * uIconA) + 0.09 * stamp;
+  // Calmer while the icon shows, so it stays readable.
+  return clamp((lobes + sway + ripples + spikes + wave) * uGain + dent, -0.3, 0.4) * (1.0 - 0.6 * uIconA);
 }
 
 vec3 shape(vec3 p) {
@@ -173,7 +173,8 @@ uniform float uHue;    // rim hue offset, radians
 uniform float uIri;    // how much the rim hue drifts
 uniform float uMetal;  // sharper, brighter highlights
 uniform float uHeat;   // pulls the rim towards orange
-uniform float uIcon, uIconA;
+uniform float uIcon;   // 0 pause, 1 play; between them one fades into the other
+uniform float uIconA;
 
 out vec4 outColor;
 
@@ -214,12 +215,17 @@ void main() {
   vec3 env = mix(vec3(0.015), uAccent * 0.5, pow(smoothstep(-0.4, 1.0, r.y), 2.0));
   env += 0.5 * smoothstep(0.92, 0.985, dot(r, normalize(vec3(-0.5, 0.7, 0.5))));
   col += env * (0.1 + 0.5 * fres) * uMorph;
-  // The icon, crisp per pixel on top of the stamp, with a soft shadow round it.
-  float d = icon(vObj.xy, uIcon);
-  float aa = fwidth(d);
-  float front = smoothstep(0.3, 0.6, vObj.z) * uIconA;
-  col *= 1.0 - 0.5 * front * (1.0 - smoothstep(0.0, 0.12, d));
-  col = mix(col, vec3(0.96) + 0.4 * spec, front * (1.0 - smoothstep(-aa, aa, d)));
+  // The icon sits on a dark glass disc, like the page's round buttons, painted onto
+  // the surface so it turns with the drop. Each shape grows in as it fades in.
+  vec2 ip = vObj.xy;
+  float front = smoothstep(0.35, 0.6, vObj.z) * uIconA;
+  float disc = length(ip) - 0.36;
+  col = mix(col, col * 0.3, front * (1.0 - smoothstep(-0.01, 0.01, disc)));
+  float playIn = smoothstep(0.0, 1.0, uIcon);
+  float dPause = sdPause(ip / mix(1.0, 0.7, playIn)), dPlay = sdPlayIcon(ip / mix(0.7, 1.0, playIn));
+  float ink = max((1.0 - smoothstep(-fwidth(dPause), fwidth(dPause), dPause)) * (1.0 - playIn),
+                  (1.0 - smoothstep(-fwidth(dPlay), fwidth(dPlay), dPlay)) * playIn);
+  col = mix(col, vec3(0.96), front * ink);
   // The very edge fades out, so the drop sits in the page instead of on it.
   float a = 1.0 - 0.9 * smoothstep(0.8, 1.0, fres) * uMorph;
   outColor = vec4(col * a, a);
