@@ -23,16 +23,22 @@ Not affiliated with pl8list.
 docker compose up -d --build       # http://127.0.0.1:8790
 ```
 
-or without Docker (Rust 1.85+):
+or without Docker (Rust 1.85+, Node 22+):
 
 ```sh
-cd backend && cargo run --release   # serves ../static, embedded at build time
+cd web && npm ci && npm run build   # front end into web/dist
+cd ../backend && cargo run --release # embeds web/dist at build time
 cargo test                          # unit tests + API tests against a fake pl8list
 ```
 
-The server is the Rust crate in `backend/`. The old Python server (`server.py` and friends)
-still works on the same database and is kept until the Rust one has run in production for a
-while; `python3 server.py` starts it.
+For front-end work run the server, then `npm run dev` in `web/`: Vite serves the page with
+hot reload on http://127.0.0.1:5173/static/ and passes API calls to the server (`BACKEND=` to point it
+elsewhere). Debug builds of the server read `web/dist` from disk, so `npm run build` is enough
+to see changes on :8790 too.
+
+The server is the Rust crate in `backend/`, the front end is TypeScript in `web/` (Vite, no
+framework). The old Python server (`server.py` and friends) still works on the same database
+but not with this front end; to roll back, check out `54a436a`.
 
 Before going public in Germany, set the Impressum variables below. `/impressum` and
 `/datenschutz` are filled in from them at startup; the texts are in `backend/templates/`.
@@ -102,7 +108,7 @@ The "account" menu shows the pl8list sync state and lets users resync, stop stay
 download everything stored about them (JSON), sign out on all devices, or delete their account
 (likes, follows, history and sessions, right away). Expired sessions
 are purged hourly and "served" events after 180 days. The browser only ever talks to this
-server: hls.js is self-hosted in `static/vendor/` and audio and images are proxied, so no
+server: hls.js is bundled into the front end and audio and images are proxied, so no
 visitor address reaches pl8list or a CDN.
 
 ## Controls
@@ -122,6 +128,27 @@ visitor address reaches pl8list or a CDN.
 Lock-screen, notification and headphone buttons control playback too (Media Session API).
 "likes" lists your likes newest first; ▶ plays one right away. Filters (free only, BPM range)
 are remembered per browser. The site can be installed to the home screen as an app.
+
+## Front end
+
+`web/src/`:
+
+- `pager.ts`: the feed. One card fills the screen; drag, flick, wheel and keys turn the page,
+  with a spring that follows the finger's speed and a rubber band at the ends. Only the
+  current card and its neighbours are in the DOM. One wheel or trackpad gesture moves one
+  page.
+- `player.ts`: two audio decks. The next track is buffered a few seconds after the current
+  one starts, so it plays at once; tracks crossfade (0.9 s, equal power) and the next one
+  starts just before the current one ends. Both decks run through a Web Audio graph with an
+  analyser. Not on iOS: its element volume is read-only and Web Audio stops with the screen
+  locked, so there tracks switch with a cut and lock-screen playback keeps working.
+- `visual.ts`: per frame, the waveform progress and a bass level (`--energy`) that pulses the
+  artwork and its glow. Without the analyser the level comes from the track's waveform.
+- `color.ts`: each card's accent colour (`--card-accent`) from the artist image.
+- `cards.ts`, `api.ts`, `main.ts`: cards, server calls, and everything else.
+
+Design tokens are CSS custom properties at the top of `style.css`. `prefers-reduced-motion`
+turns off the spring, the pulse and the animations.
 
 ## How it works
 

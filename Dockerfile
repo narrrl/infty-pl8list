@@ -1,4 +1,11 @@
 # syntax=docker/dockerfile:1
+FROM node:24-alpine AS web
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web ./
+RUN npm run build
+
 FROM rust:1-alpine AS build
 RUN apk add --no-cache musl-dev cmake make perl clang ca-certificates
 WORKDIR /src/backend
@@ -7,7 +14,7 @@ COPY backend/Cargo.toml backend/Cargo.lock ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs \
  && cargo build --release --locked \
  && rm -rf src
-COPY static /src/static
+COPY --from=web /src/web/dist /src/web/dist
 COPY backend ./
 RUN touch src/main.rs && cargo build --release --locked \
  && mkdir -p /out/data && cp target/release/pl8inf /out/pl8inf

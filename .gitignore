@@ -3,3 +3,5 @@
 *.db-*
 __pycache__/
 backend/target/
+web/node_modules/
+web/dist/

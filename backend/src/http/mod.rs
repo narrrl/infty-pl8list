@@ -259,8 +259,10 @@ pub type Peer = ConnectInfo<SocketAddr>;
 
 // Static files ------------------------------------------------------------
 
+/// The built front end (`web/`, `npm run build`). Hashed asset names, so they
+/// can be cached for good; index.html and fixed-name files are revalidated.
 #[derive(Embed)]
-#[folder = "../static/"]
+#[folder = "../web/dist/"]
 struct Static;
 
 fn content_type(path: &str) -> &'static str {
@@ -277,8 +279,9 @@ fn content_type(path: &str) -> &'static str {
 }
 
 fn static_file(path: &str) -> Response {
+    let cache = if path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
     match Static::get(path) {
-        Some(f) => ([(header::CONTENT_TYPE, content_type(path)), (header::CACHE_CONTROL, "no-cache")], f.data).into_response(),
+        Some(f) => ([(header::CONTENT_TYPE, content_type(path)), (header::CACHE_CONTROL, cache)], f.data).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
