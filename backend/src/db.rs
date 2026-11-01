@@ -278,6 +278,36 @@ pub fn artist_neighbours(conn: &Connection, handle: &str) -> rusqlite::Result<Ve
     .collect()
 }
 
+/// An artist as seen on their tracks.
+#[derive(Debug, Serialize)]
+pub struct Artist {
+    pub handle: String,
+    pub name: String,
+    pub img: Option<String>,
+    pub verified: bool,
+    pub tracks: i64,
+}
+
+pub fn artist(conn: &Connection, handle: &str) -> rusqlite::Result<Option<Artist>> {
+    conn.prepare_cached(
+        "SELECT handle, artist_name, artist_img, artist_verified, COUNT(*) FROM tracks WHERE handle=? GROUP BY handle",
+    )?
+    .query_row([handle], |r| {
+        Ok(Artist { handle: r.get(0)?, name: r.get(1)?, img: r.get(2)?, verified: r.get(3)?, tracks: r.get(4)? })
+    })
+    .optional()
+}
+
+/// An artist's most common style tags; tempo tags left out.
+pub fn artist_tags(conn: &Connection, handle: &str, n: usize) -> rusqlite::Result<Vec<String>> {
+    conn.prepare_cached(
+        "SELECT g.tag FROM track_tags g JOIN tracks t ON t.id = g.track_id \
+         WHERE t.handle=? AND g.tag NOT GLOB '[0-9]*' GROUP BY g.tag ORDER BY COUNT(*) DESC, g.tag LIMIT ?",
+    )?
+    .query_map(params![handle, n as i64], |r| r.get(0))?
+    .collect()
+}
+
 /// How many tracks each artist has with `tag`.
 pub fn tag_counts(conn: &Connection, tag: &str) -> rusqlite::Result<Vec<(String, i64)>> {
     conn.prepare_cached(

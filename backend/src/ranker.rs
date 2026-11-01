@@ -48,6 +48,10 @@ pub trait Ranker: Send + Sync {
     fn bonus(&self, _track: &Track) -> f64 {
         0.0
     }
+    /// Why a picked track is in this feed, sent along as `why`.
+    fn reason(&self, _track: &Track) -> Option<Value> {
+        None
+    }
 }
 
 /// The original mix.
@@ -164,8 +168,7 @@ impl Ranker for Fresh {
 
 struct ArtistRadio {
     seed: String,
-    /// Neighbours, 0..1 by how closely they are linked.
-    near: HashMap<String, f64>,
+    near: HashMap<String, Near>,
 }
 
 const RADIO: Weights = Weights { artist: 0.5, related: 0.5, ..CLASSIC };
@@ -179,30 +182,55 @@ impl Ranker for ArtistRadio {
     }
     // The artist themselves now and then; mostly the ones around them.
     fn bonus(&self, t: &Track) -> f64 {
-        if t.handle == self.seed { 1.0 } else { 2.0 * self.near.get(&t.handle).copied().unwrap_or(0.0) }
+        if t.handle == self.seed { 1.0 } else { 2.0 * self.near.get(&t.handle).map_or(0.0, |n| n.score) }
+    }
+    fn reason(&self, t: &Track) -> Option<Value> {
+        if t.handle == self.seed {
+            return Some(json!({ "kind": "seed" }));
+        }
+        Some(match &self.near.get(&t.handle)?.via {
+            None => json!({ "kind": "related" }),
+            Some(via) => json!({ "kind": "via", "handle": via }),
+        })
     }
 }
 
-/// Neighbours of an artist up to two hops away, scored 0..1. A second-hop artist
-/// scores at most 0.4 of the link that leads to it.
-fn neighbourhood(conn: &Connection, seed: &str) -> rusqlite::Result<HashMap<String, f64>> {
-    let scaled = |links: Vec<(String, i64)>| {
-        let max = links.iter().map(|l| l.1).max().unwrap_or(1).max(1) as f64;
-        links.into_iter().map(|(h, n)| (h, (n as f64 / max).sqrt())).collect::<Vec<_>>()
-    };
-    let first = scaled(crate::db::artist_neighbours(conn, seed)?);
-    let mut near: HashMap<String, f64> = first.iter().cloned().collect();
-    let mut by_score = first;
-    by_score.sort_by(|a, b| b.1.total_cmp(&a.1));
-    for (h, w) in by_score.into_iter().take(10) {
-        for (h2, w2) in scaled(crate::db::artist_neighbours(conn, &h)?) {
-            if h2 != seed {
-                let s = near.entry(h2).or_default();
-                *s = s.max(0.4 * w * w2);
+/// An artist near a radio's seed.
+#[derive(Debug, PartialEq)]
+pub struct Near {
+    /// 0..1 by how closely linked.
+    pub score: f64,
+    /// For a second hop: the seed's neighbour that leads here.
+    pub via: Option<String>,
+}
+
+/// Neighbours of an artist up to two hops away. A second-hop artist scores at most
+/// 0.4 of the link that leads to it.
+fn neighbourhood(conn: &Connection, seed: &str) -> rusqlite::Result<HashMap<String, Near>> {
+    let first = scaled_neighbours(conn, seed)?;
+    let mut near: HashMap<String, Near> = first.iter().map(|(h, w)| (h.clone(), Near { score: *w, via: None })).collect();
+    for (h, w) in first.into_iter().take(10) {
+        for (h2, w2) in scaled_neighbours(conn, &h)? {
+            if h2 == seed {
+                continue;
+            }
+            let score = 0.4 * w * w2;
+            let n = near.entry(h2).or_insert(Near { score: 0.0, via: Some(h.clone()) });
+            if n.via.is_some() && score > n.score {
+                *n = Near { score, via: Some(h.clone()) };
             }
         }
     }
     Ok(near)
+}
+
+/// Direct neighbours of an artist, closest first, scored 0..1 against the closest.
+pub fn scaled_neighbours(conn: &Connection, handle: &str) -> rusqlite::Result<Vec<(String, f64)>> {
+    let links = crate::db::artist_neighbours(conn, handle)?;
+    let max = links.iter().map(|l| l.1).max().unwrap_or(1).max(1) as f64;
+    let mut out: Vec<(String, f64)> = links.into_iter().map(|(h, n)| (h, (n as f64 / max).sqrt())).collect();
+    out.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    Ok(out)
 }
 
 /// How strongly each artist is linked to `tag`, 0..1: their own tagged tracks (three
@@ -391,10 +419,25 @@ pub fn pick(conn: &Connection, user_id: i64, n: usize, f: Filters, ranker: &dyn 
         let best = (0..scored.len()).max_by(|&a, &b| penalised(&scored[a]).total_cmp(&penalised(&scored[b]))).unwrap_or(0);
         let (s, r) = scored.remove(best);
         seen.push(r.handle.clone());
-        out.push(serialize(&r, Some(s)));
+        let mut v = serialize(&r, Some(s));
+        if let Some(why) = ranker.reason(&r) {
+            v["why"] = why;
+        }
+        out.push(v);
     }
     add_tags(conn, &mut out)?;
+    name_reasons(conn, &mut out)?;
     Ok(out)
+}
+
+/// Artist names for reasons that point at another artist.
+fn name_reasons(conn: &Connection, tracks: &mut [Value]) -> rusqlite::Result<()> {
+    for t in tracks {
+        if let Some(h) = t["why"]["handle"].as_str().map(String::from) {
+            t["why"]["name"] = json!(crate::db::artist(conn, &h)?.map_or(h, |a| a.name));
+        }
+    }
+    Ok(())
 }
 
 fn add_tags(conn: &Connection, tracks: &mut [Value]) -> rusqlite::Result<()> {
@@ -509,8 +552,9 @@ mod tests {
         db::add_related(&mut c, 1, &["b".into()]).unwrap();
         db::add_related(&mut c, 2, &["c".into()]).unwrap();
         let near = neighbourhood(&c, "a").unwrap();
-        assert_eq!(near["b"], 1.0);
-        assert!((near["c"] - 0.4).abs() < 1e-9);
+        assert_eq!(near["b"], Near { score: 1.0, via: None });
+        assert!((near["c"].score - 0.4).abs() < 1e-9);
+        assert_eq!(near["c"].via.as_deref(), Some("b"));
         assert_eq!(ids(&c, Mode::Artist("a".into()), 10), [1, 2, 3]);
     }
 
