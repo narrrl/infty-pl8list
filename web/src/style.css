@@ -285,7 +285,8 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 }
 .card.liquid .content > :not(.art) { position: relative; z-index: 1; }
 .card.liquid .title { text-shadow: 0 2px 16px #000b; }
-.card.liquid .initial, .card.liquid .paused-badge { display: none; }
+/* The drop shows loading as a ring of its own. */
+.card.liquid .initial, .card.liquid .paused-badge, .card.liquid .spinner { display: none; }
 /* Hidden, not removed: it takes itself away when its animation ends. */
 .card.liquid .flash { visibility: hidden; }
 @media (pointer: fine) {
@@ -737,6 +738,12 @@ button.primary svg { width: 1em; height: 1em; }
     gap: 0.9rem;
   }
 }
+
+/* Zen: nothing but the drop, bigger, and the music. */
+body.zen #bar, body.zen .actions, body.zen .chips, body.zen .desc, body.zen .counts,
+body.zen .why, body.zen .byline button, body.zen #feed-status { display: none; }
+body.zen .art { width: min(30rem, 62vh, 86vw); }
+body.zen .content { gap: 0.3rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

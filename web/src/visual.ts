@@ -9,7 +9,7 @@ import { artistImg } from "./api";
 import { LiquidBlob, SPILL } from "./blob/blob";
 import { lookFor } from "./blob/style";
 import type { Card } from "./cards";
-import { accentFor } from "./color";
+import { accentFor, accentForName } from "./color";
 import { type Features, FeatureTracker } from "./features";
 import type { Player } from "./player";
 
@@ -17,6 +17,7 @@ export type VisualsSetting = "liquid" | "simple";
 const VISUALS_KEY = "pl8inf.visuals";
 const SLOP = 10; // px before a press on the drop turns it
 const REACH = 1.2; // how far past the art's radius the drop can be grabbed
+const IDLE_FPS = 15; // a paused drop keeps breathing, slowly and at a low frame rate
 
 export class Visualizer {
   private raf = 0;
@@ -31,6 +32,9 @@ export class Visualizer {
   /// A press on the drop; `on` once it moved enough to turn it.
   private grab: { id: number; x: number; y: number; on: boolean } | null = null;
   private spun = false;
+  /// A mouse rests on the drop.
+  private hover = false;
+  private idleTimer = 0;
 
   constructor(
     private player: Player,
@@ -70,14 +74,17 @@ export class Visualizer {
     if (this.blob === undefined) {
       this.blob = LiquidBlob.create(this.touch);
       if (this.blob) {
-        this.blob.onLost = () => {
-          this.blob?.canvas.remove();
-          this.blob = null;
-          this.card?.el?.classList.remove("liquid");
-        };
+        // Plain art while the GPU is gone; the drop comes back with it.
+        this.blob.onLost = () => this.card?.el?.classList.remove("liquid");
+        this.blob.onRestored = () => this.attach(this.card, true);
       }
     }
-    return this.blob;
+    return this.blob?.lost ? null : this.blob;
+  }
+
+  /// A play/pause from a tap was taken back by the second tap of a double-tap.
+  cancelFlash(): void {
+    this.blob?.settleIcon();
   }
 
   /// Follow `card` from now on.
@@ -96,9 +103,11 @@ export class Visualizer {
       card?.el?.classList.remove("liquid");
     } else {
       const img = artistImg(card.track);
-      blob.setAccent(null);
+      const name = card.track.artist_name || "?";
+      const own = accentForName(name);
+      blob.setAccent(img ? null : own);
       if (img) accentFor(img).then((c) => { if (this.card === card) blob.setAccent(c); });
-      blob.mount(slot, lookFor(card.track), img, (card.track.artist_name || "?")[0].toUpperCase()).then((ok) => {
+      blob.mount(slot, lookFor(card.track), img, name[0].toUpperCase(), own).then((ok) => {
         if (ok && this.card === card) {
           card.el?.classList.add("liquid");
           this.start();
@@ -109,6 +118,8 @@ export class Visualizer {
   }
 
   start(): void {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = 0;
     if (!this.raf && !document.hidden) {
       this.last = 0;
       this.raf = requestAnimationFrame(this.frame);
@@ -116,6 +127,8 @@ export class Visualizer {
   }
 
   stop(): void {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = 0;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
   }
@@ -129,11 +142,22 @@ export class Visualizer {
     return { x: r.left + r.width / 2, y: r.top + r.height / 2, radius: r.width / SPILL / 2 };
   }
 
-  /// Pointer over the drop pushes a dent into it.
+  /// Pointer over the drop pushes a dent into it; a mouse resting on it shows that
+  /// a click pauses.
   private pointer(e: PointerEvent, on: boolean): void {
     const at = this.where();
-    if (!at) return;
-    this.blob!.setPointer((e.clientX - at.x) / at.radius, -(e.clientY - at.y) / at.radius, on);
+    if (!at) {
+      this.hover = false;
+      return;
+    }
+    const x = (e.clientX - at.x) / at.radius, y = -(e.clientY - at.y) / at.radius;
+    this.blob!.setPointer(x, y, on);
+    const hover = on && e.pointerType === "mouse" && !this.grab?.on && Math.hypot(x, y) < 1
+      && !(e.target as Element).closest?.("button, a, input, .wave-wrap, #bar, .panel");
+    if (hover !== this.hover) {
+      this.hover = hover;
+      this.card?.el?.classList.toggle("drop-hover", hover);
+    }
     if (on) this.start();
   }
 
@@ -211,16 +235,28 @@ export class Visualizer {
       ? this.features.idle(dt)
       : mixed
         ? this.features.fromAnalyser(an, now / 1000, dt)
-        : this.features.fromLoudness(card.loudnessAt(progress), dt);
+        : this.features.fromLoudness(card.loudnessAt(progress), now / 1000, dt);
     this.debug?.(f);
     let busy = playing;
+    const liquid = !!this.blob && !!card.el?.classList.contains("liquid");
     if (!this.reduced.matches) {
-      // The kick drives the pulse; without an analyser there are no kicks, only loudness.
-      const energy = Math.min(1, mixed ? 0.65 * f.kick + 0.35 * f.low : 0.7 * f.low);
+      // The kick drives the pulse; without an analyser the kicks come from the waveform.
+      const energy = Math.min(1, mixed ? 0.65 * f.kick + 0.35 * f.low : 0.5 * f.low + 0.4 * f.kick);
       card.el?.style.setProperty("--energy", energy.toFixed(3));
       busy ||= energy > 0.01;
-      if (this.blob && card.el?.classList.contains("liquid")) busy = this.blob.frame(f, dt, playing) || busy;
+      if (liquid) {
+        const buffering = !!card.el?.classList.contains("buffering");
+        busy = this.blob!.frame(f, dt, { playing, progress, buffering, hover: this.hover }) || busy;
+      }
     }
     if (busy) this.raf = requestAnimationFrame(this.frame);
+    // Paused, it breathes on at a low frame rate; not on phones, for the battery.
+    else if (liquid && !this.touch && !this.reduced.matches) {
+      // Not through start(): the frame should see the real time since the last one.
+      this.idleTimer = window.setTimeout(() => {
+        this.idleTimer = 0;
+        if (!this.raf && !document.hidden) this.raf = requestAnimationFrame(this.frame);
+      }, 1000 / IDLE_FPS);
+    }
   };
 }

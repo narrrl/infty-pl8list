@@ -55,31 +55,46 @@ float snoise(vec3 v) {
 `;
 
 // The play/pause icon on the front of the drop, as distances in units of the radius
-// (negative inside), with rounded corners like the page's icons.
+// (negative inside). Each pause bar is a quad whose corners slide into one half of
+// the play triangle, so every step between the two is one clean shape, not two
+// faded over each other.
 const ICON = /* glsl */ `
-float sdBox(vec2 p, vec2 b) {
-  vec2 d = abs(p) - b;
-  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+// Inigo Quilez's polygon distance, MIT licence, for four corners.
+float sdQuad(vec2 p, vec2 v0, vec2 v1, vec2 v2, vec2 v3) {
+  vec2 v[4] = vec2[4](v0, v1, v2, v3);
+  float d = dot(p - v0, p - v0);
+  float s = 1.0;
+  for (int i = 0, j = 3; i < 4; j = i, i++) {
+    vec2 e = v[j] - v[i];
+    vec2 w = p - v[i];
+    vec2 b = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);
+    d = min(d, dot(b, b));
+    bvec3 c = bvec3(p.y >= v[i].y, p.y < v[j].y, e.x * w.y > e.y * w.x);
+    if (all(c) || all(not(c))) s = -s;
+  }
+  return s * sqrt(d);
 }
 
-// Inigo Quilez's equilateral triangle, MIT licence; turned to point right and
-// moved right a little, so it looks centred.
-float sdPlay(vec2 p, float r) {
-  p = vec2(-p.y, p.x - 0.035);
-  const float k = sqrt(3.0);
-  p.x = abs(p.x) - r;
-  p.y = p.y + r / k;
-  if (p.x + k * p.y > 0.0) p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
-  p.x -= clamp(p.x, -2.0 * r, 0.0);
-  return -length(p) * sign(p.y);
-}
-
-float sdPause(vec2 p) {
-  return sdBox(vec2(abs(p.x) - 0.1, p.y), vec2(0.035, 0.15)) - 0.025;
-}
-
-float sdPlayIcon(vec2 p) {
-  return sdPlay(p, 0.15) - 0.03;
+// 0 pause, 1 play. Corners go bottom left, bottom right, top right, top left.
+float sdPlayPause(vec2 p, float t) {
+  float k = smoothstep(0.0, 1.0, t);
+  // A small swing in the middle of the morph, level again at both ends, so the
+  // change reads as a motion and not a dissolve.
+  float a = 0.35 * sin(3.14159 * k);
+  p = mat2(cos(a), sin(a), -sin(a), cos(a)) * p;
+  float left = sdQuad(p,
+    mix(vec2(-0.13, -0.16), vec2(-0.12, -0.17), k),
+    mix(vec2(-0.05, -0.16), vec2(0.04, -0.079), k),
+    mix(vec2(-0.05, 0.16), vec2(0.04, 0.079), k),
+    mix(vec2(-0.13, 0.16), vec2(-0.12, 0.17), k));
+  float right = sdQuad(p,
+    mix(vec2(0.05, -0.16), vec2(0.02, -0.091), k),
+    mix(vec2(0.13, -0.16), vec2(0.18, -0.001), k),
+    mix(vec2(0.13, 0.16), vec2(0.18, 0.001), k),
+    mix(vec2(0.05, 0.16), vec2(0.02, 0.091), k));
+  // A smooth union, so the seam between the halves fills in as they meet.
+  float h = clamp(0.5 + 0.5 * (right - left) / 0.03, 0.0, 1.0);
+  return mix(right, left, h) - 0.03 * h * (1.0 - h) - 0.02;
 }
 `;
 
@@ -103,7 +118,7 @@ uniform float uJelly;   // extra wobble while a jump rings out, 0..1
 uniform vec4 uPointer;  // direction on the sphere, strength
 uniform mat3 uRot;      // turned by hand, object to view space
 uniform vec3 uFront;    // towards the viewer, in object space
-uniform float uIconA;   // how much the play/pause icon shows, see ICON
+uniform float uCalm;    // calms the surface while the icon or the loading ring shows
 
 out vec3 vPos;     // view space
 out vec3 vNormal;  // view space
@@ -130,28 +145,33 @@ float disp(vec3 p) {
   float n = snoise(q * 2.4 - vec3(0.0, t * 0.6, t * 0.9));
   float spikes = pow(max(n, 0.0), 3.0) * (0.05 + 0.25 * uSnare + 0.15 * uGrowl * uBass + 0.1 * uDrop) * uSpike;
   // After each kick a wave runs from the front of the drop round to the back.
+  // Squares are written out: pow() of a negative base is undefined in GLSL, and
+  // Mesa really returns NaN for it, which flattened the whole drop on Linux.
   float angle = acos(clamp(dot(p, uFront), -1.0, 1.0));
-  float wave = exp(-pow((angle - uKickAge * 5.0) * 1.8, 2.0)) * exp(-uKickAge * 2.8) * 0.09 * uShock;
-  float dent = -0.18 * uPointer.w * exp(-pow(distance(p, uPointer.xyz) * 2.2, 2.0));
+  float ahead = (angle - uKickAge * 5.0) * 1.8;
+  float wave = exp(-ahead * ahead) * exp(-uKickAge * 2.8) * 0.09 * uShock;
+  float near = distance(p, uPointer.xyz) * 2.2;
+  float dent = -0.18 * uPointer.w * exp(-near * near);
   // Calmer while the icon shows, so it stays readable.
-  return clamp((lobes + sway + ripples + spikes + wave) * uGain + dent, -0.3, 0.4) * (1.0 - 0.6 * uIconA);
-}
-
-vec3 shape(vec3 p) {
-  vec3 s = p * (1.0 + disp(p) * uMorph);
-  s.z *= mix(0.04, 1.0, uMorph);
-  return s;
+  return clamp((lobes + sway + ripples + spikes + wave) * uGain + dent, -0.3, 0.4) * (1.0 - 0.6 * uCalm);
 }
 
 void main() {
   vec3 p = position;
-  // Normal from two displaced neighbours along the surface.
+  // The surface is the sphere pushed out by h. Its normal tips against the slope of
+  // h, taken from two neighbours a small step along the surface.
   vec3 t1 = normalize(cross(p, abs(p.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
   vec3 t2 = cross(p, t1);
   const float e = 0.012;
-  vec3 s = shape(p);
-  vec3 n = normalize(cross(shape(normalize(p + t1 * e)) - s, shape(normalize(p + t2 * e)) - s));
-  if (dot(n, p) < 0.0) n = -n;
+  float h = disp(p) * uMorph;
+  float g1 = (disp(p + t1 * e) * uMorph - h) / e;
+  float g2 = (disp(p + t2 * e) * uMorph - h) / e;
+  vec3 n = p * (1.0 + h) - g1 * t1 - g2 * t2;
+  // Flattened into the static artwork while it morphs in; the normal scales the other way.
+  float depth = mix(0.04, 1.0, uMorph);
+  n = normalize(vec3(n.xy, n.z / depth));
+  vec3 s = p * (1.0 + h);
+  s.z *= depth;
   vPos = uRot * s * uScale + vec3(0.0, uLift, -uDist);
   vNormal = normalize(uRot * n / uScale);
   vObj = p;
@@ -173,8 +193,11 @@ uniform float uHue;    // rim hue offset, radians
 uniform float uIri;    // how much the rim hue drifts
 uniform float uMetal;  // sharper, brighter highlights
 uniform float uHeat;   // pulls the rim towards orange
-uniform float uIcon;   // 0 pause, 1 play; between them one fades into the other
-uniform float uIconA;
+uniform float uIcon;     // 0 pause, 1 play; between them one morphs into the other
+uniform float uIconA;    // how much the icon shows
+uniform float uBusy;     // loading: a short arc runs round the ring instead
+uniform float uProgress; // 0..1 played, on the ring
+uniform float uClock;    // s, wall clock
 
 out vec4 outColor;
 
@@ -215,17 +238,33 @@ void main() {
   vec3 env = mix(vec3(0.015), uAccent * 0.5, pow(smoothstep(-0.4, 1.0, r.y), 2.0));
   env += 0.5 * smoothstep(0.92, 0.985, dot(r, normalize(vec3(-0.5, 0.7, 0.5))));
   col += env * (0.1 + 0.5 * fres) * uMorph;
-  // The icon sits on a dark glass disc, like the page's round buttons, painted onto
-  // the surface so it turns with the drop. Each shape grows in as it fades in.
+  // The icon sits on a disc of frosted glass, painted onto the surface so it turns
+  // with the drop: the artwork behind it blurred and dimmed, lit along its rim. A
+  // ring round it shows how much has played, or runs while the track loads.
   vec2 ip = vObj.xy;
-  float front = smoothstep(0.35, 0.6, vObj.z) * uIconA;
+  float front = smoothstep(0.35, 0.6, vObj.z) * uMorph;
+  float show = max(uIconA, uBusy) * front;
   float disc = length(ip) - 0.36;
-  col = mix(col, col * 0.3, front * (1.0 - smoothstep(-0.01, 0.01, disc)));
-  float playIn = smoothstep(0.0, 1.0, uIcon);
-  float dPause = sdPause(ip / mix(1.0, 0.7, playIn)), dPlay = sdPlayIcon(ip / mix(0.7, 1.0, playIn));
-  float ink = max((1.0 - smoothstep(-fwidth(dPause), fwidth(dPause), dPause)) * (1.0 - playIn),
-                  (1.0 - smoothstep(-fwidth(dPlay), fwidth(dPlay), dPlay)) * playIn);
-  col = mix(col, vec3(0.96), front * ink);
+  float da = fwidth(disc);
+  float inDisc = 1.0 - smoothstep(-da, da, disc);
+  vec3 frost = textureLod(uArt, 0.5 + vec2(ip.x, -ip.y) * 0.48, 5.0).rgb * 0.3 + uAccent * 0.03;
+  frost += 0.35 * (1.0 - smoothstep(0.0, 0.025, abs(disc + 0.01))) * smoothstep(-0.3, 0.35, ip.y);
+  col = mix(col, frost, show * inDisc);
+
+  float ringD = abs(length(ip) - 0.41) - 0.011;
+  float ra = fwidth(ringD);
+  float ring = (1.0 - smoothstep(-ra, ra, ringD)) * front;
+  float turn = fract(atan(ip.x, ip.y) / 6.2831853 + 1.0); // 0 at the top, clockwise
+  float played = 1.0 - smoothstep(uProgress - 0.003, uProgress + 0.003, turn);
+  float seg = fract(turn - uClock * 0.9);
+  float arc = smoothstep(0.0, 0.04, seg) * (1.0 - smoothstep(0.18, 0.28, seg));
+  col = mix(col, mix(vec3(0.32), uAccent, played), ring * uIconA * (1.0 - uBusy));
+  col = mix(col, mix(vec3(0.25), vec3(0.96), arc), ring * uBusy);
+
+  float dIcon = sdPlayPause(ip, uIcon);
+  float ia = fwidth(dIcon);
+  float ink = 1.0 - smoothstep(-ia, ia, dIcon);
+  col = mix(col, vec3(0.96), front * uIconA * (1.0 - uBusy) * ink);
   // The very edge fades out, so the drop sits in the page instead of on it.
   float a = 1.0 - 0.9 * smoothstep(0.8, 1.0, fres) * uMorph;
   outColor = vec4(col * a, a);

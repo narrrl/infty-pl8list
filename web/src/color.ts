@@ -2,6 +2,13 @@
 // well on the dark background. Images are same-origin (proxied), so the canvas can
 // read them.
 
+/// A steady accent for an artist without an image, from their name.
+export function accentForName(name: string): string {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
+  return `hsl(${h % 360} 70% 62%)`;
+}
+
 const cache = new Map<string, Promise<string | null>>();
 
 export function accentFor(src: string): Promise<string | null> {

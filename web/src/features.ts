@@ -68,6 +68,9 @@ const DROP_RISE_DB = 2.5; // dB above the long average where a drop starts
 const DROP_FULL_DB = 5; // dB above the start for a full drop
 const DROP_ATTACK = 0.25; // s
 const DROP_RELEASE = 2; // s
+// Without an analyser the waveform stands in. Its steps are coarse, so a rise from
+// one step to the next is the only "onset" there is.
+const LOUD_FLOOR = 0.02; // loudness treated as silence, so a rise from nothing is finite
 
 const ease = (dt: number, tau: number) => 1 - Math.exp(-dt / tau);
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -130,6 +133,9 @@ export class FeatureTracker {
   private prev: Float32Array<ArrayBuffer> | null = null;
   private ranges = { sub: new Range(), low: new Range(), mid: new Range(), high: new Range() };
   private kick = new Onset(KICK_DECAY);
+  /// Kicks from the waveform's steps, where there is no analyser.
+  private loudKick = new Onset(KICK_DECAY * 1.5);
+  private lastLevel = 0;
   private snare = new Onset(SNARE_DECAY);
   private bassRange = new Range(-60, -30, BASS_FOLLOW, BASS_FOLLOW, BASS_MIN_RANGE);
   private growlRange = new Range(7, 9, GROWL_FOLLOW, GROWL_FOLLOW, GROWL_MIN_RANGE);
@@ -198,12 +204,18 @@ export class FeatureTracker {
   }
 
   /// One frame where there is no analyser: only the loudness from the waveform.
-  fromLoudness(level: number, dt: number): Features {
+  /// Jumps in it count as kicks, so the drop still lands on the drops.
+  fromLoudness(level: number, now: number, dt: number): Features {
     const f = this.f;
     f.sub = f.low = f.mid = f.high = f.bass = level;
     f.growl = 0.3;
-    f.kick = f.snare = f.kickHit = f.snareHit = 0;
-    f.kickAge = 99;
+    const rise = 20 * Math.log10(Math.max(LOUD_FLOOR, level) / Math.max(LOUD_FLOOR, this.lastLevel));
+    this.lastLevel = level;
+    this.loudKick.update(Math.max(0, rise), now, dt);
+    f.kick = this.loudKick.env;
+    f.kickAge = this.loudKick.age;
+    f.kickHit = this.loudKick.hit;
+    f.snare = f.snareHit = 0;
     this.track(level, level > 0 ? 20 * Math.log10(level) : SILENCE_DB, dt);
     return f;
   }

@@ -2,7 +2,7 @@
 // and dropped again once it is far behind, so a long session stays light.
 
 import { type Track, artistImg, artistUrl, trackUrl } from "./api";
-import { accentFor } from "./color";
+import { accentFor, accentForName } from "./color";
 
 export interface CardActions {
   like(card: Card): void;
@@ -72,6 +72,7 @@ export class Card {
       });
     } else {
       $(".initial").textContent = (t.artist_name || "?")[0].toUpperCase();
+      el.style.setProperty("--card-accent", accentForName(t.artist_name || "?"));
     }
 
     $(".why").textContent = this.whyText();

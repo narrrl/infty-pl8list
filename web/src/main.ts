@@ -352,6 +352,7 @@ feedEl.addEventListener("click", (e) => {
     if (lastTap.toggled) {
       player.toggle();
       card.clearFlash();
+      visual.cancelFlash();
     }
     card.burst(e.clientX, e.clientY);
     setLike(card, true);
@@ -639,6 +640,7 @@ document.addEventListener("keydown", (e) => {
   if ((e.target as Element).tagName === "INPUT" || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === "Escape") {
+    setZen(false);
     closePanels();
     hideHelp();
     station.close();
@@ -666,8 +668,19 @@ document.addEventListener("keydown", (e) => {
   else if (k === "m") { setMuted(!player.muted); toast(player.muted ? "muted" : "sound on"); }
   else if (k === "+" || k === "=") { setVolume(player.volume + 0.1); toast(`volume ${Math.round(player.volume * 100)}%`); }
   else if (k === "-") { setVolume(player.volume - 0.1); toast(`volume ${Math.round(player.volume * 100)}%`); }
+  else if (k === "z") setZen(!document.body.classList.contains("zen"));
   else if (k === "?") { helpEl.hidden ? showHelp() : hideHelp(); }
 });
+
+/// Zen: nothing but the drop and the music.
+function setZen(on: boolean): void {
+  if (document.body.classList.contains("zen") === on) return;
+  document.body.classList.toggle("zen", on);
+  if (on) {
+    closePanels();
+    toast("zen · z or esc to leave");
+  }
+}
 
 addEventListener("resize", () => current()?.drawWave(player.audio.duration ? player.audio.currentTime / player.audio.duration : 0, true));
 addEventListener("pagehide", finishActive);
