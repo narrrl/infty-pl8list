@@ -395,6 +395,44 @@ document.addEventListener("pointerdown", (e) => {
   setTimeout(() => { swallowClick = false; }, 500);
 }, true);
 
+// Volume ------------------------------------------------------------------
+
+const volumeEl = $("volume");
+const muteBtn = $("mute-btn");
+const volumeSlider = $<HTMLInputElement>("volume-slider");
+
+function showVolume(): void {
+  const silent = player.muted || player.volume === 0;
+  muteBtn.querySelector("use")!.setAttribute("href", silent ? "#i-mute" : "#i-vol");
+  muteBtn.setAttribute("aria-pressed", String(player.muted));
+  volumeSlider.value = String(player.muted ? 0 : player.volume);
+}
+
+function setMuted(m: boolean): void {
+  player.muted = m;
+  // Unmuting at zero would stay silent.
+  if (!m && player.volume === 0) player.volume = 0.5;
+  showVolume();
+}
+
+function setVolume(v: number): void {
+  player.volume = v;
+  player.muted = false;
+  showVolume();
+}
+
+// iOS ignores the volume, see player.ts.
+volumeEl.hidden = !player.canMix;
+showVolume();
+muteBtn.addEventListener("click", () => setMuted(!player.muted));
+volumeSlider.addEventListener("input", () => setVolume(Number(volumeSlider.value)));
+// Hand the keys back to the feed, or space and the arrows would move the slider.
+volumeSlider.addEventListener("change", () => volumeSlider.blur());
+volumeSlider.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  setVolume(player.volume - Math.sign(e.deltaY) * 0.05);
+}, { passive: false });
+
 const showHelp = () => { helpEl.hidden = false; };
 const hideHelp = () => { helpEl.hidden = true; };
 $("help-btn").addEventListener("click", showHelp);
@@ -620,7 +658,9 @@ document.addEventListener("keydown", (e) => {
   else if (k === "x" && card) dislike(card);
   else if (k === "s" && card) share(card);
   else if (k === "v") { setVisuals(visual.visuals === "liquid" ? "simple" : "liquid"); toast(`${visual.visuals} visuals`); }
-  else if (k === "m") { player.muted = !player.muted; toast(player.muted ? "muted" : "sound on"); }
+  else if (k === "m") { setMuted(!player.muted); toast(player.muted ? "muted" : "sound on"); }
+  else if (k === "+" || k === "=") { setVolume(player.volume + 0.1); toast(`volume ${Math.round(player.volume * 100)}%`); }
+  else if (k === "-") { setVolume(player.volume - 0.1); toast(`volume ${Math.round(player.volume * 100)}%`); }
   else if (k === "?") { helpEl.hidden ? showHelp() : hideHelp(); }
 });
 

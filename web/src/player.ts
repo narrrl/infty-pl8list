@@ -2,7 +2,8 @@
 // crossfade into each other.
 //
 // Where the browser allows it, both <audio> elements run through a Web Audio graph:
-// a gain per deck (for the crossfade) into one analyser (for the visuals). iOS is
+// a gain per deck (for the crossfade) into one analyser (for the visuals), then a
+// master gain for the volume, so the visuals look the same at any volume. iOS is
 // left out: its element volume is read-only and Web Audio stops when the screen
 // locks, which would break lock-screen playback. There tracks switch with a cut.
 
@@ -12,6 +13,7 @@ import { type Track, streamUrl } from "./api";
 const CROSSFADE = 0.9; // seconds
 const PRELOAD_BUFFER = 6; // seconds buffered of the track after the current one
 const PLAY_BUFFER = 30;
+const VOLUME_KEY = "pl8inf.volume";
 
 type Hls = HlsType;
 type HlsClass = typeof HlsType;
@@ -68,6 +70,8 @@ export class Player {
   private ctx: AudioContext | null = null;
   private unlocking: Promise<void> | null = null;
   private fadeEnd = 0;
+  private master: GainNode | null = null;
+  private vol = Number(localStorage.getItem(VOLUME_KEY) ?? 1);
   private listeners = new Map<PlayerEvent, Set<() => void>>();
   analyser: AnalyserNode | null = null;
   /// False on iOS, see the top of this file.
@@ -84,6 +88,8 @@ export class Player {
       return { el, hls: null, gain: null, track: null, wantPlay: false, gen: 0 };
     };
     this.decks = [deck(), deck()];
+    if (!(this.vol >= 0 && this.vol <= 1)) this.vol = 1;
+    this.volume = this.vol;
     for (const d of this.decks) {
       for (const ev of FORWARDED) {
         d.el.addEventListener(ev, () => {
@@ -150,8 +156,10 @@ export class Player {
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
     analyser.smoothingTimeConstant = 0.2; // features.ts smooths per feature; this only takes the edge off the FFT
-    analyser.connect(ctx.destination);
+    const master = ctx.createGain();
+    analyser.connect(master).connect(ctx.destination);
     for (const d of this.decks) {
+      d.el.volume = 1; // the master gain takes over
       const gain = ctx.createGain();
       gain.gain.value = d === this.decks[this.cur] ? 1 : 0;
       ctx.createMediaElementSource(d.el).connect(gain).connect(analyser);
@@ -159,6 +167,8 @@ export class Player {
     }
     this.ctx = ctx;
     this.analyser = analyser;
+    this.master = master;
+    this.volume = this.vol;
   }
 
   /// Play a track, crossfading from the current one when possible.
@@ -281,5 +291,19 @@ export class Player {
 
   set muted(m: boolean) {
     for (const d of this.decks) d.el.muted = m;
+  }
+
+  /// 0 to 1, as the slider shows it. Squared on the way out, so it sounds even.
+  /// Without a graph the element volumes carry it; on iOS they are read-only.
+  get volume(): number {
+    return this.vol;
+  }
+
+  set volume(v: number) {
+    this.vol = Math.max(0, Math.min(1, v));
+    localStorage.setItem(VOLUME_KEY, String(this.vol));
+    const out = this.vol * this.vol;
+    if (this.master) this.master.gain.value = out;
+    else for (const d of this.decks) d.el.volume = out;
   }
 }

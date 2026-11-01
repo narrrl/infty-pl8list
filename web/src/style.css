@@ -70,6 +70,10 @@ button {
 .logo b { color: var(--accent); }
 #stats { color: var(--muted); font-size: 0.8rem; }
 #help-btn { width: 2.2em; padding: 0.35em 0; }
+#volume { display: flex; align-items: center; gap: 0.3rem; }
+#mute-btn { width: 2.2em; padding: 0.35em 0; display: grid; place-items: center; }
+#mute-btn svg { width: 1.1em; height: 1.1em; }
+#volume-slider { width: 5.5rem; accent-color: var(--accent); cursor: pointer; }
 #account-btn { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #filters-btn.active::after {
   content: "";
@@ -699,6 +703,8 @@ button.primary svg { width: 1em; height: 1em; }
   #bar { gap: 0.4rem; padding-left: 0.7rem; padding-right: 0.7rem; }
   #bar button { padding: 0.3em 0.7em; font-size: 0.85rem; }
   #help-btn { display: none; }
+  /* Phones have volume buttons; the bar has no room. */
+  #volume { display: none; }
   #account-btn { max-width: 6.5rem; }
   .panel { left: 0.7rem; right: 0.7rem; }
   #station { place-items: end stretch; padding: 0; }

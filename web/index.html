@@ -26,6 +26,8 @@
     <symbol id="i-open" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M7 17 17 7M9 7h8v8"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v16M6 14l6 6 6-6"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
+    <symbol id="i-vol" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4.5v15L8 15H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h4l5-4.5v15L8 15H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></symbol>
     <symbol id="i-pause" viewBox="0 0 24 24"><path fill="currentColor" d="M7 4.5h3.5v15H7zM13.5 4.5H17v15h-3.5z"/></symbol>
   </svg>
 
@@ -37,6 +39,10 @@
     <span id="stats"></span>
     <button id="filters-btn" type="button" aria-controls="filters" aria-expanded="false">filters</button>
     <button id="likes-btn" type="button" aria-controls="likes" aria-expanded="false">likes</button>
+    <div id="volume" hidden>
+      <button id="mute-btn" type="button" title="mute (m)" aria-label="mute" aria-pressed="false"><svg><use href="#i-vol"/></svg></button>
+      <input id="volume-slider" type="range" min="0" max="1" step="0.01" aria-label="volume">
+    </div>
     <button id="help-btn" type="button" title="shortcuts (?)" aria-label="help">?</button>
     <button id="account-btn" type="button" aria-controls="account" aria-expanded="false" title="account"></button>
   </header>
@@ -183,7 +189,7 @@
         <dt>x</dt><dd>not for me</dd>
         <dt>s</dt><dd>share</dd>
         <dt>v</dt><dd>liquid / simple visuals</dd>
-        <dt>m</dt><dd>mute</dd>
+        <dt>m · + −</dt><dd>mute · volume</dd>
         <dt>?</dt><dd>this help</dd>
       </dl>
       <p>Drag the liquid artwork sideways to spin it. Lock-screen and headphone buttons work too.</p>
