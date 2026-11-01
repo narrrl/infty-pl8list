@@ -16,6 +16,10 @@ pub struct Config {
     pub secure: bool,
     pub cache_dir: PathBuf,
     pub cache_max_bytes: u64,
+    /// Server half of the key for stored pl8list sessions: `LINK_KEY` (base64, 32
+    /// bytes), else the file `LINK_KEY_FILE` (created on first start).
+    pub link_key: Option<String>,
+    pub link_key_file: PathBuf,
     /// pl8list itself; only changed by tests.
     pub pl8_base: String,
     pub legal: Legal,
@@ -65,6 +69,9 @@ pub fn load_dotenv(path: &str) {
 impl Config {
     pub fn from_env() -> Self {
         let db_path = PathBuf::from(var("PL8_DB").unwrap_or_else(|| "pl8list.db".into()));
+        let link_key_file = var("LINK_KEY_FILE").map(PathBuf::from).unwrap_or_else(|| {
+            db_path.parent().map(|p| p.join("link.key")).unwrap_or_else(|| PathBuf::from("link.key"))
+        });
         let cache_dir = var("CACHE_DIR").map(PathBuf::from).unwrap_or_else(|| {
             db_path.parent().map(|p| p.join("cache")).unwrap_or_else(|| PathBuf::from("cache"))
         });
@@ -81,6 +88,8 @@ impl Config {
             secure: flag("INSECURE_COOKIES") != Some(true),
             cache_dir,
             cache_max_bytes: var("CACHE_MAX_MB").and_then(|v| v.parse().ok()).unwrap_or(2048u64) << 20,
+            link_key: var("LINK_KEY"),
+            link_key_file,
             pl8_base: var("PL8_BASE").unwrap_or_else(|| "https://pl8list.com".into()),
             legal: Legal {
                 name: var("IMPRESSUM_NAME").unwrap_or_default(),

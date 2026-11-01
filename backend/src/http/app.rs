@@ -1,4 +1,4 @@
-//! The feed, likes and listening events.
+//! The feed, likes, follows and listening events.
 
 use std::{collections::HashMap, time::Duration};
 
@@ -11,8 +11,8 @@ use axum::{
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
-use super::{CurrentUser, Res, St, json_error, no_store};
-use crate::{db, ranker};
+use super::{App, CurrentUser, Res, St, json_error, no_store};
+use crate::{db, ranker, sync};
 
 const EVENT_KINDS: &[&str] = &["play", "like", "unlike", "skip", "complete", "dislike"];
 /// On a cold start the crawler needs a few seconds before there is anything to serve.
@@ -20,8 +20,35 @@ const FEED_WAIT: Duration = Duration::from_secs(10);
 
 pub async fn me(Extension(current): Extension<CurrentUser>) -> Response {
     match current.user {
-        Some(u) => (no_store(), Json(json!({ "user": { "handle": u.handle, "name": u.name, "img": u.img } }))).into_response(),
+        Some(u) => (
+            no_store(),
+            Json(json!({
+                "user": { "handle": u.handle, "name": u.name, "img": u.img },
+                "pl8list": { "connected": current.link.is_some(), "synced_at": current.synced_at },
+            })),
+        )
+            .into_response(),
         None => json_error(StatusCode::UNAUTHORIZED, "not signed in"),
+    }
+}
+
+/// Mark tracks by artists the user follows.
+async fn mark_followed(app: &App, uid: i64, tracks: &mut [Value]) -> anyhow::Result<()> {
+    let follows = app.db.call(move |c| db::follows(c, uid)).await?;
+    for t in tracks {
+        let followed = t["handle"].as_str().is_some_and(|h| follows.contains(h));
+        t["followed"] = json!(followed);
+    }
+    Ok(())
+}
+
+/// A connected device resyncs in the background once its last sync is old enough.
+async fn resync_if_due(app: &App, current: &CurrentUser) {
+    if current.link.is_none() || current.synced_at.is_some_and(|t| t > db::now() - sync::RESYNC_AFTER) {
+        return;
+    }
+    if let Some((sealer, session)) = app.connected(current).await {
+        app.sync.linked(sealer, session);
     }
 }
 
@@ -43,15 +70,17 @@ pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Qu
         bpm_min: num(&q, "bpm_min"),
         bpm_max: num(&q, "bpm_max"),
     };
+    resync_if_due(&app, &current).await;
     let deadline = Instant::now() + FEED_WAIT;
     let uid = user.id;
-    let tracks = loop {
+    let mut tracks = loop {
         let tracks = app.db.call(move |c| ranker::pick(c, uid, n, filters, ranker)).await?;
         if !tracks.is_empty() || Instant::now() >= deadline {
             break tracks;
         }
         tokio::time::sleep(Duration::from_millis(1500)).await;
     };
+    mark_followed(&app, uid, &mut tracks).await?;
     let ids: Vec<i64> = tracks.iter().filter_map(|t| t["id"].as_i64()).collect();
     let stats = app
         .db
@@ -72,7 +101,8 @@ pub async fn likes(State(app): St, Extension(current): Extension<CurrentUser>) -
         Ok(u) => u.id,
         Err(r) => return Ok(r),
     };
-    let tracks = app.db.call(move |c| ranker::likes(c, uid)).await?;
+    let mut tracks = app.db.call(move |c| ranker::likes(c, uid)).await?;
+    mark_followed(&app, uid, &mut tracks).await?;
     Ok((no_store(), Json(json!({ "tracks": tracks }))).into_response())
 }
 
@@ -99,5 +129,45 @@ pub async fn event(State(app): St, Extension(current): Extension<CurrentUser>, J
     if kind == "like" || kind == "complete" {
         app.crawler.on_positive(track_id).await;
     }
+    if kind == "like" && app.limits.pl8_writes.allow(&uid.to_string()) {
+        let row = app.db.call(move |c| db::track_path(c, track_id)).await?;
+        if let (Some((handle, slug)), Some((sealer, session))) = (row, app.connected(&current).await) {
+            app.sync.push_like(sealer, session, handle, slug);
+        }
+    }
     Ok((no_store(), Json(json!({ "ok": true }))).into_response())
+}
+
+/// Valid pl8list handles, as seen in every handle crawled so far.
+fn valid_handle(h: &str) -> bool {
+    (1..=64).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b)) && h != "." && h != ".."
+}
+
+/// Follow or unfollow an artist. Unfollowing only affects this app; on a connected
+/// device a follow is also saved to the user's pl8list library.
+pub async fn follow(State(app): St, Extension(current): Extension<CurrentUser>, Json(body): Json<Value>) -> Res {
+    let uid = match current.require() {
+        Ok(u) => u.id,
+        Err(r) => return Ok(r),
+    };
+    let handle = body.get("handle").and_then(Value::as_str).filter(|h| valid_handle(h)).map(String::from);
+    let on = body.get("follow").and_then(Value::as_bool);
+    let (Some(handle), Some(on)) = (handle, on) else {
+        return Ok(StatusCode::BAD_REQUEST.into_response());
+    };
+    if !app.limits.events.allow(&uid.to_string()) {
+        return Ok(StatusCode::TOO_MANY_REQUESTS.into_response());
+    }
+    let h = handle.clone();
+    let added = app
+        .db
+        .call(move |c| if on { db::add_follows(c, uid, &[h], "local") } else { db::unfollow(c, uid, &h).map(|_| 0) })
+        .await?;
+    if added > 0 {
+        app.crawler.discovered_artists([handle.clone()]);
+        if app.limits.pl8_writes.allow(&uid.to_string()) && let Some((sealer, session)) = app.connected(&current).await {
+            app.sync.push_follow(sealer, session, handle);
+        }
+    }
+    Ok((no_store(), Json(json!({ "ok": true, "followed": on }))).into_response())
 }

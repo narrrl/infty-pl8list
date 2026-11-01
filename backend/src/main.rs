@@ -5,8 +5,10 @@
 //!
 //! Users sign in with their pl8list email: pl8list mails them a code, they type it
 //! here, and this server checks it with pl8list. Afterwards they get a session
-//! cookie for this app only. Their pl8list session is used once to read their
-//! personal feed, then logged out at pl8list; it is never written to disk.
+//! cookie for this app only. Their pl8list session is used once to sync their
+//! library, then logged out at pl8list, unless they opt in to stay connected on
+//! that device; then it is stored encrypted with a key only their browser can
+//! unlock (see `link.rs`).
 //! See `config.rs` for the environment variables.
 
 #![allow(clippy::result_large_err)] // handlers return axum `Response` as their error
@@ -16,9 +18,11 @@ mod config;
 mod crawler;
 mod db;
 mod http;
+mod link;
 mod pl8;
 mod ranker;
 mod ratelimit;
+mod sync;
 
 use std::{
     io::{Read, Write},
@@ -71,12 +75,13 @@ async fn main() -> anyhow::Result<std::process::ExitCode> {
         tracing::warn!("INSECURE_COOKIES=1: cookies without Secure, no HSTS. Use only for local development.");
     }
     let db = db::Db::open(&cfg.db_path)?;
+    let link = link::LinkKey::load(cfg.link_key.as_deref(), &cfg.link_key_file)?;
     let pl8 = Arc::new(pl8::Pl8::new(&cfg.pl8_base, Duration::from_millis(700))?);
     let crawler = crawler::Crawler::new(pl8.clone(), db.clone());
     crawler.start();
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
-    let app = http::App::new(cfg, db, pl8, crawler);
+    let app = http::App::new(cfg, db, pl8, crawler, link);
     {
         let app = app.clone();
         tokio::spawn(async move {

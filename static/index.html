@@ -52,18 +52,27 @@
         <label for="code">pl8list sent a 6-digit code to <span id="sent-to"></span></label>
         <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"
                maxlength="6" required placeholder="123456">
+        <label class="check">
+          <input type="checkbox" id="connect" name="connect">
+          <span>stay connected to pl8list on this device
+            <small>keeps your feed and library in sync, and saves what you like and follow here to
+              your pl8list library. Your pl8list login is stored encrypted with a key only this browser
+              holds. Turn it off any time under your account.</small></span>
+        </label>
         <button type="submit">sign in</button>
         <div class="login-links">
           <button type="button" id="resend" class="link">resend code</button>
           <button type="button" id="restart" class="link">use another email</button>
         </div>
       </form>
+      <button type="button" id="login-cancel" class="link" hidden>cancel, keep using the app</button>
       <p id="login-error" role="alert"></p>
       <p class="fineprint">
         No account? <a href="https://pl8list.com/signup" target="_blank" rel="noopener">sign up on pl8list</a>.
         This site is not affiliated with pl8list. Your email and code go to pl8list, which signs this
-        server in for you. We use that pl8list login once to read your library, then log it out; it is
-        never stored. We keep your pl8list handle and what you play and like, to pick tracks for you.
+        server in for you. Unless you choose to stay connected, we use that pl8list login once to read
+        your feed and library, then log it out; it is never stored. We keep your pl8list handle, the
+        artists you follow and what you play and like, to pick tracks for you.
       </p>
       <p class="fineprint legal-links">
         <a href="/datenschutz">Datenschutz / privacy</a> · <a href="/impressum">Impressum</a>
@@ -86,6 +95,12 @@
 
   <aside id="account" class="panel" hidden>
     <h2 id="account-handle"></h2>
+    <section id="sync" aria-labelledby="sync-title">
+      <h3 id="sync-title">pl8list sync</h3>
+      <p id="sync-status"></p>
+      <button type="button" id="sync-btn">resync with pl8list</button>
+      <button type="button" id="disconnect-btn" class="link" hidden>stop staying connected on this device</button>
+    </section>
     <button type="button" id="logout-btn">sign out</button>
     <button type="button" id="logout-all-btn" class="link">sign out on all devices</button>
     <a href="/account/export" download>download my data</a>
@@ -121,6 +136,7 @@
         <dt>double-click · l</dt><dd>like</dd>
         <dt>↓ j · ↑ k</dt><dd>next / previous</dd>
         <dt>← →</dt><dd>seek 10 s</dd>
+        <dt>f</dt><dd>follow artist</dd>
         <dt>x</dt><dd>not for me</dd>
         <dt>s</dt><dd>share</dd>
         <dt>m</dt><dd>mute</dd>
@@ -145,7 +161,10 @@
           <span class="spinner"></span>
         </div>
         <h1 class="title"></h1>
-        <a class="artist" target="_blank" rel="noopener"></a>
+        <div class="byline">
+          <a class="artist" target="_blank" rel="noopener"></a>
+          <button type="button" class="follow" title="follow artist (f)">follow</button>
+        </div>
         <div class="chips"></div>
         <p class="desc"></p>
         <div class="wave-wrap">

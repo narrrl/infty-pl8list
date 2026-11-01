@@ -3,7 +3,8 @@
 //! The site keeps the pending login in its `_session` cookie, so one flow holds that
 //! cookie between the two steps. After `verify` succeeds the cookie is a fully
 //! logged-in pl8list session. It is handed to the caller exactly once and is never
-//! logged, stored or kept in the flow.
+//! logged or kept in the flow; only an opted-in device stores it, encrypted
+//! (see `link.rs`).
 
 use base64::{
     Engine,
@@ -14,7 +15,7 @@ use percent_encoding::percent_decode_str;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 
-use super::Pl8;
+use super::{Pl8, UserSession};
 
 #[derive(Debug)]
 pub struct LoginError(pub String);
@@ -145,7 +146,9 @@ impl LoginFlow {
             return Err(err(e));
         }
         let session = self.session.take().ok_or_else(|| err("login failed, try again"))?;
-        let root = pl8.root(Some(&session)).await.ok().flatten();
+        let mut user_session = UserSession::new(session);
+        let root = pl8.root(Some(&mut user_session)).await.ok().flatten();
+        let session = user_session.into_cookie();
         let user = root.as_ref().and_then(|r| r.get("currentUser")).filter(|u| u.is_object());
         let Some(user) = user else {
             // Not logged in after all; nothing to end at pl8list.

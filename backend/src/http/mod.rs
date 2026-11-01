@@ -24,13 +24,17 @@ use serde_json::json;
 use tower::limit::GlobalConcurrencyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 
+use secrecy::SecretString;
+
 use crate::{
     cache::Cache,
     config::Config,
     crawler::Crawler,
     db::{self, Db, User},
+    link::{LinkKey, Sealer},
     pl8::Pl8,
     ratelimit::RateLimiter,
+    sync::Syncer,
 };
 use security::Cookies;
 
@@ -46,6 +50,10 @@ pub struct Limits {
     pub login_global: RateLimiter,
     pub events: RateLimiter,
     pub proxy: RateLimiter,
+    /// Saves to a user's pl8list library (likes and follows pushed from here).
+    pub pl8_writes: RateLimiter,
+    /// The resync button.
+    pub resync: RateLimiter,
 }
 
 pub struct App {
@@ -53,6 +61,7 @@ pub struct App {
     pub db: Db,
     pub pl8: Arc<Pl8>,
     pub crawler: Arc<Crawler>,
+    pub sync: Arc<Syncer>,
     pub cache: Cache,
     pub logins: auth::PendingLogins,
     pub limits: Limits,
@@ -64,8 +73,9 @@ pub struct App {
 pub type St = State<Arc<App>>;
 
 impl App {
-    pub fn new(cfg: Config, db: Db, pl8: Arc<Pl8>, crawler: Arc<Crawler>) -> Arc<Self> {
+    pub fn new(cfg: Config, db: Db, pl8: Arc<Pl8>, crawler: Arc<Crawler>, link: LinkKey) -> Arc<Self> {
         let cache = Cache::open(cfg.cache_dir.clone(), cfg.cache_max_bytes);
+        let sync = Syncer::new(pl8.clone(), db.clone(), crawler.clone(), link);
         let legal = legal::Pages::render(&cfg.legal);
         Arc::new(App {
             cookies: Cookies { secure: cfg.secure },
@@ -75,9 +85,12 @@ impl App {
                 login_global: RateLimiter::new(30, 600),
                 events: RateLimiter::new(600, 600),
                 proxy: RateLimiter::new(1200, 60),
+                pl8_writes: RateLimiter::new(60, 600),
+                resync: RateLimiter::new(1, 120),
             },
             logins: auth::PendingLogins::default(),
             segments: proxy::SegmentKeys::default(),
+            sync,
             cache,
             legal,
             cfg,
@@ -96,6 +109,21 @@ impl App {
         }
         self.logins.prune();
         self.segments.prune();
+    }
+
+    /// This device's stored pl8list session, if it stays connected. A blob that no
+    /// longer opens (for example after the server key changed) is dropped.
+    pub async fn connected(&self, current: &CurrentUser) -> Option<(Sealer, SecretString)> {
+        let (Some(user), Some(token), Some(blob)) = (&current.user, &current.token, &current.link) else { return None };
+        let sealer = self.sync.key.sealer(token, user.id);
+        match sealer.open(blob) {
+            Some(session) => Some((sealer, session)),
+            None => {
+                let hash = sealer.token_hash.clone();
+                let _ = self.db.call(move |c| db::clear_link(c, &hash)).await;
+                None
+            }
+        }
     }
 }
 
@@ -133,6 +161,9 @@ pub fn no_store() -> [(header::HeaderName, &'static str); 1] {
 pub struct CurrentUser {
     pub user: Option<User>,
     pub token: Option<String>,
+    /// Encrypted pl8list session of this device (see `link.rs`).
+    pub link: Option<Vec<u8>>,
+    pub synced_at: Option<f64>,
 }
 
 impl CurrentUser {
@@ -152,14 +183,41 @@ async fn session(State(app): St, mut req: Request, next: Next) -> Response {
         None => (None, false),
     };
     let mut set_cookie: Vec<HeaderValue> = vec![];
-    let mut current = CurrentUser { user: None, token: token.clone() };
+    let mut current = CurrentUser { user: None, token: token.clone(), link: None, synced_at: None };
     if let Some(t) = token {
         let lookup = t.clone();
         if let Ok(Some(hit)) = app.db.call(move |c| db::session_user(c, &lookup)).await {
             let mut new_token = None;
+            current.link = hit.link.clone();
+            current.synced_at = hit.synced_at;
             if hit.created_at < db::now() - ROTATE_AFTER {
                 let (old, uid) = (t.clone(), hit.user.id);
-                new_token = app.db.call(move |c| db::rotate_session(c, &old, uid)).await.ok();
+                // The stored pl8list session is encrypted for the old token; move it over.
+                let reopened = hit.link.as_deref().and_then(|b| app.sync.key.sealer(&t, uid).open(b));
+                let key = &app.sync.key;
+                let synced = hit.synced_at;
+                new_token = match app.db.call(move |c| db::rotate_session(c, &old, uid)).await {
+                    Ok(nt) => {
+                        if let Some(session) = reopened {
+                            let new = key.sealer(&nt, uid);
+                            let blob = new.seal(&session);
+                            let old_hash = db::hash_token(&t);
+                            let stored = blob.clone();
+                            let _ = app
+                                .db
+                                .call(move |c| {
+                                    db::set_link(c, &new.token_hash, &stored, synced)?;
+                                    db::clear_link(c, &old_hash)
+                                })
+                                .await;
+                            current.link = Some(blob);
+                        } else {
+                            current.link = None;
+                        }
+                        Some(nt)
+                    }
+                    Err(_) => None,
+                };
             } else if legacy {
                 new_token = Some(t.clone());
             }
@@ -256,9 +314,12 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/local/feed", get(app::feed))
         .route("/local/likes", get(app::likes))
         .route("/local/event", post(app::event))
+        .route("/local/follow", post(app::follow))
         .route("/account/export", get(account::export))
         .route("/account/delete", post(account::delete))
         .route("/account/logout-all", post(account::logout_all))
+        .route("/account/pl8list/sync", post(account::sync))
+        .route("/account/pl8list/disconnect", post(account::disconnect))
         .route("/api/{handle}/{slug}/hls/playlist.m3u8", get(proxy::playlist))
         .route("/api/{handle}/{slug}/hls/segment/{n}", get(proxy::segment))
         .route("/img/{id}", get(proxy::image))

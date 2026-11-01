@@ -93,6 +93,20 @@ CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS events_kind_ts ON events(kind, ts);
 "#;
 
+// pl8_link: the device's pl8list session, encrypted (see link.rs). NULL unless the
+// user chose to stay connected on that device.
+const SCHEMA_V3: &str = r#"
+ALTER TABLE sessions ADD COLUMN pl8_link BLOB;
+ALTER TABLE sessions ADD COLUMN pl8_synced_at REAL;
+CREATE TABLE IF NOT EXISTS follows (
+    user_id INTEGER NOT NULL,
+    handle TEXT NOT NULL,
+    source TEXT NOT NULL,
+    ts REAL NOT NULL,
+    PRIMARY KEY (user_id, handle)
+);
+"#;
+
 pub fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64()
 }
@@ -144,6 +158,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if version < 2 {
         conn.execute_batch(SCHEMA_V2)?;
         conn.pragma_update(None, "user_version", 2)?;
+    }
+    if version < 3 {
+        conn.execute_batch(&format!("BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"))?;
     }
     Ok(())
 }
@@ -314,6 +331,10 @@ pub fn add_event(conn: &Connection, user_id: i64, track_id: i64, kind: &str, sec
     Ok(())
 }
 
+pub fn track_path(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<(String, String)>> {
+    conn.query_row("SELECT handle, slug FROM tracks WHERE id=?", [track_id], |r| Ok((r.get(0)?, r.get(1)?))).optional()
+}
+
 pub fn track_count(conn: &Connection) -> rusqlite::Result<i64> {
     conn.query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
 }
@@ -399,16 +420,26 @@ pub struct SessionHit {
     pub user: User,
     pub created_at: f64,
     pub expires_at: f64,
+    pub link: Option<Vec<u8>>,
+    pub synced_at: Option<f64>,
 }
 
 pub fn session_user(conn: &Connection, token: &str) -> rusqlite::Result<Option<SessionHit>> {
     let now = now();
     let hit = conn
         .query_row(
-            "SELECT u.*, s.created_at AS s_created, s.expires_at AS s_expires \
+            "SELECT u.*, s.created_at AS s_created, s.expires_at AS s_expires, s.pl8_link, s.pl8_synced_at \
              FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash=? AND s.expires_at > ?",
             params![hash_token(token), now],
-            |r| Ok(SessionHit { user: User::from_row(r)?, created_at: r.get("s_created")?, expires_at: r.get("s_expires")? }),
+            |r| {
+                Ok(SessionHit {
+                    user: User::from_row(r)?,
+                    created_at: r.get("s_created")?,
+                    expires_at: r.get("s_expires")?,
+                    link: r.get("pl8_link")?,
+                    synced_at: r.get("pl8_synced_at")?,
+                })
+            },
         )
         .optional()?;
     if let Some(h) = &hit {
@@ -437,6 +468,25 @@ pub fn rotate_session(conn: &Connection, old_token: &str, user_id: i64) -> rusql
     Ok(token)
 }
 
+/// Store (or replace) the encrypted pl8list session of one device.
+pub fn set_link(conn: &Connection, token_hash: &str, blob: &[u8], synced_at: Option<f64>) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE sessions SET pl8_link=?, pl8_synced_at=COALESCE(?, pl8_synced_at) WHERE token_hash=?",
+        params![blob, synced_at, token_hash],
+    )?;
+    Ok(())
+}
+
+pub fn clear_link(conn: &Connection, token_hash: &str) -> rusqlite::Result<()> {
+    conn.execute("UPDATE sessions SET pl8_link=NULL, pl8_synced_at=NULL WHERE token_hash=?", [token_hash])?;
+    Ok(())
+}
+
+pub fn mark_synced(conn: &Connection, token_hash: &str) -> rusqlite::Result<()> {
+    conn.execute("UPDATE sessions SET pl8_synced_at=? WHERE token_hash=? AND pl8_link IS NOT NULL", params![now(), token_hash])?;
+    Ok(())
+}
+
 pub fn delete_session(conn: &Connection, token: &str) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM sessions WHERE token_hash=?", [hash_token(token)])?;
     Ok(())
@@ -447,6 +497,50 @@ pub fn delete_user_sessions(conn: &Connection, user_id: i64) -> rusqlite::Result
     Ok(())
 }
 
+// Library sync ---------------------------------------------------------------
+
+/// Tracks saved on pl8list count as likes, unless the user already liked or unliked
+/// them here. Returns how many were added.
+pub fn import_likes(conn: &mut Connection, user_id: i64, track_ids: &[i64]) -> rusqlite::Result<usize> {
+    let tx = conn.transaction()?;
+    let mut added = 0;
+    {
+        let mut insert = tx.prepare_cached(
+            "INSERT INTO events (user_id, track_id, kind, seconds, ts) SELECT ?1, ?2, 'like', NULL, ?3 \
+             WHERE NOT EXISTS (SELECT 1 FROM events WHERE user_id=?1 AND track_id=?2 AND kind IN ('like', 'unlike'))",
+        )?;
+        let now = now();
+        for id in track_ids {
+            added += insert.execute(params![user_id, id, now])?;
+        }
+    }
+    tx.commit()?;
+    Ok(added)
+}
+
+pub fn add_follows(conn: &mut Connection, user_id: i64, handles: &[String], source: &str) -> rusqlite::Result<usize> {
+    let tx = conn.transaction()?;
+    let mut added = 0;
+    {
+        let mut insert = tx.prepare_cached("INSERT OR IGNORE INTO follows (user_id, handle, source, ts) VALUES (?,?,?,?)")?;
+        let now = now();
+        for h in handles {
+            added += insert.execute(params![user_id, h, source, now])?;
+        }
+    }
+    tx.commit()?;
+    Ok(added)
+}
+
+pub fn unfollow(conn: &Connection, user_id: i64, handle: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM follows WHERE user_id=? AND handle=?", params![user_id, handle])?;
+    Ok(())
+}
+
+pub fn follows(conn: &Connection, user_id: i64) -> rusqlite::Result<std::collections::HashSet<String>> {
+    conn.prepare_cached("SELECT handle FROM follows WHERE user_id=?")?.query_map([user_id], |r| r.get(0))?.collect()
+}
+
 pub fn active_since(conn: &Connection, ts: f64) -> rusqlite::Result<i64> {
     conn.query_row("SELECT COUNT(*) FROM users WHERE last_seen > ?", [ts], |r| r.get(0))
 }
@@ -455,9 +549,17 @@ pub fn active_since(conn: &Connection, ts: f64) -> rusqlite::Result<i64> {
 pub fn export_user(conn: &Connection, user_id: i64) -> rusqlite::Result<serde_json::Value> {
     let user = conn.query_row("SELECT * FROM users WHERE id=?", [user_id], User::from_row)?;
     let sessions: Vec<serde_json::Value> = conn
-        .prepare("SELECT created_at, expires_at FROM sessions WHERE user_id=? ORDER BY created_at")?
+        .prepare(
+            "SELECT created_at, expires_at, pl8_link IS NOT NULL, pl8_synced_at FROM sessions \
+             WHERE user_id=? ORDER BY created_at",
+        )?
         .query_map([user_id], |r| {
-            Ok(serde_json::json!({ "created_at": r.get::<_, f64>(0)?, "expires_at": r.get::<_, f64>(1)? }))
+            Ok(serde_json::json!({
+                "created_at": r.get::<_, f64>(0)?,
+                "expires_at": r.get::<_, f64>(1)?,
+                "pl8list_connected": r.get::<_, bool>(2)?,
+                "pl8list_synced_at": r.get::<_, Option<f64>>(3)?,
+            }))
         })?
         .collect::<Result<_, _>>()?;
     let events: Vec<serde_json::Value> = conn
@@ -477,12 +579,21 @@ pub fn export_user(conn: &Connection, user_id: i64) -> rusqlite::Result<serde_js
             }))
         })?
         .collect::<Result<_, _>>()?;
+    let follows: Vec<serde_json::Value> = conn
+        .prepare("SELECT handle, source, ts FROM follows WHERE user_id=? ORDER BY ts")?
+        .query_map([user_id], |r| {
+            Ok(serde_json::json!({ "artist": r.get::<_, String>(0)?, "source": r.get::<_, String>(1)?, "ts": r.get::<_, f64>(2)? }))
+        })?
+        .collect::<Result<_, _>>()?;
     Ok(serde_json::json!({
         "exported_at": now(),
         "user": user,
         "sessions": sessions,
+        "follows": follows,
         "events": events,
-        "note": "Times are Unix timestamps in seconds. Session tokens are stored only as hashes and are not included.",
+        "note": "Times are Unix timestamps in seconds. Session tokens are stored only as hashes and are not included. \
+                 A connected session's pl8list login is stored encrypted with a key only your browser holds, so it \
+                 cannot be included either.",
     }))
 }
 
@@ -490,6 +601,7 @@ pub fn export_user(conn: &Connection, user_id: i64) -> rusqlite::Result<serde_js
 pub fn delete_user(conn: &mut Connection, user_id: i64) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM events WHERE user_id=?", [user_id])?;
+    tx.execute("DELETE FROM follows WHERE user_id=?", [user_id])?;
     tx.execute("DELETE FROM sessions WHERE user_id=?", [user_id])?;
     tx.execute("DELETE FROM users WHERE id=?", [user_id])?;
     tx.commit()
@@ -549,6 +661,19 @@ mod tests {
         assert_eq!(count("SELECT COUNT(*) FROM sessions WHERE user_id=1"), 0);
         assert_eq!(count("SELECT COUNT(*) FROM events WHERE user_id=1"), 0);
         assert_eq!(count("SELECT COUNT(*) FROM events WHERE user_id=2"), 1);
+    }
+
+    #[test]
+    fn imported_likes_do_not_override_choices_made_here() {
+        let mut c = mem();
+        upsert_user(&c, 1, "a", None, None).unwrap();
+        add_event(&c, 1, 10, "unlike", None).unwrap();
+        assert_eq!(import_likes(&mut c, 1, &[10, 11]).unwrap(), 1);
+        assert_eq!(import_likes(&mut c, 1, &[10, 11]).unwrap(), 0);
+        assert_eq!(add_follows(&mut c, 1, &["x".into(), "y".into()], "pl8list").unwrap(), 2);
+        assert_eq!(add_follows(&mut c, 1, &["x".into()], "local").unwrap(), 0);
+        unfollow(&c, 1, "x").unwrap();
+        assert_eq!(follows(&c, 1).unwrap().into_iter().collect::<Vec<_>>(), vec!["y".to_string()]);
     }
 
     #[test]

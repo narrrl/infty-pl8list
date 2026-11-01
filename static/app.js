@@ -135,8 +135,10 @@ function buildCard(track, { liked = false } = {}) {
 
   const card = { track, el, canvas: el.querySelector(".wave"), liked };
   el.querySelector(".like").classList.toggle("on", liked);
+  showFollow(card);
 
   el.querySelector(".like").addEventListener("click", () => setLike(card, !card.liked));
+  el.querySelector(".follow").addEventListener("click", () => setFollow(card, !card.track.followed));
   el.querySelector(".dislike").addEventListener("click", () => dislike(card));
   el.querySelector(".share").addEventListener("click", () => share(card));
   el.querySelector(".next").addEventListener("click", () => go(cards.indexOf(card) + 1));
@@ -309,6 +311,29 @@ function setLike(card, liked) {
   }
   if (stats) { stats.liked += liked ? 1 : -1; showStats(); }
   sendEvent(card.track, liked ? "like" : "unlike");
+}
+
+function showFollow(card) {
+  const btn = card.el.querySelector(".follow");
+  btn.classList.toggle("on", !!card.track.followed);
+  btn.textContent = card.track.followed ? "following" : "follow";
+}
+
+async function setFollow(card, follow) {
+  const { handle } = card.track;
+  // Every card by this artist changes together.
+  const update = (on) => cards.filter((c) => c.track.handle === handle).forEach((c) => {
+    c.track.followed = on;
+    showFollow(c);
+  });
+  update(follow);
+  try {
+    await postJSON("/local/follow", { handle, follow });
+    toast(follow ? `following ${card.track.artist_name}` : `unfollowed ${card.track.artist_name}`);
+  } catch (err) {
+    update(!follow);
+    toast(err.message, 4000);
+  }
 }
 
 function dislike(card) {
@@ -614,6 +639,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "ArrowRight") audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10);
   else if (k === "ArrowLeft") audio.currentTime = Math.max(0, audio.currentTime - 10);
   else if (k === "l" && card) setLike(card, !card.liked);
+  else if (k === "f" && card) setFollow(card, !card.track.followed);
   else if (k === "x" && card) dislike(card);
   else if (k === "s" && card) share(card);
   else if (k === "m") { audio.muted = !audio.muted; toast(audio.muted ? "muted" : "sound on"); }
@@ -630,6 +656,8 @@ const loginEl = document.getElementById("login");
 const emailForm = document.getElementById("email-form");
 const codeForm = document.getElementById("code-form");
 const loginError = document.getElementById("login-error");
+const loginCancel = document.getElementById("login-cancel");
+let signedInUser = null;
 
 async function postJSON(url, data) {
   const res = await fetch(url, {
@@ -638,18 +666,24 @@ async function postJSON(url, data) {
     body: JSON.stringify(data || {}),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(body.error || `request failed (${res.status})`), { status: res.status });
   return body;
 }
 
-function showLogin() {
+// `resync`: already signed in, signing in again only to sync with pl8list.
+function showLogin({ resync = false } = {}) {
+  closePanels();
   document.getElementById("bar").hidden = true;
   startEl.hidden = true;
   loginEl.hidden = false;
   emailForm.hidden = false;
   codeForm.hidden = true;
+  loginCancel.hidden = !resync;
+  loginError.textContent = resync ? "sign in with pl8list again to sync your library" : "";
   document.getElementById("email").focus();
 }
+
+loginCancel.addEventListener("click", () => signedIn(signedInUser));
 
 async function withForm(form, fn) {
   const buttons = form.querySelectorAll("button");
@@ -678,8 +712,12 @@ emailForm.addEventListener("submit", (e) => {
 codeForm.addEventListener("submit", (e) => {
   e.preventDefault();
   withForm(codeForm, async () => {
-    const { user } = await postJSON("/auth/verify", { code: codeForm.code.value });
-    signedIn(user);
+    const { user, connected } = await postJSON("/auth/verify", {
+      code: codeForm.code.value,
+      connect: codeForm.connect.checked,
+    });
+    signedIn(user, { connected, synced_at: Date.now() / 1000 });
+    toast(connected ? "connected, syncing your pl8list library…" : "syncing your pl8list library…");
   });
 });
 
@@ -699,9 +737,54 @@ document.getElementById("restart").addEventListener("click", showLogin);
 // Account -----------------------------------------------------------------
 
 const deleteForm = document.getElementById("delete-form");
+const syncStatus = document.getElementById("sync-status");
+const syncBtn = document.getElementById("sync-btn");
+const disconnectBtn = document.getElementById("disconnect-btn");
 
-accountBtn.addEventListener("click", () => {
-  if (togglePanel(accountPanel)) deleteForm.hidden = true;
+function ago(ts) {
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  if (m < 48 * 60) return `${Math.round(m / 60)} h ago`;
+  return `${Math.round(m / 1440)} days ago`;
+}
+
+function showSync(pl8list) {
+  const connected = !!pl8list?.connected;
+  syncStatus.classList.toggle("on", connected);
+  syncStatus.textContent = connected
+    ? `connected on this device${pl8list.synced_at ? `, last sync ${ago(pl8list.synced_at)}` : ""}. ` +
+      "Likes and follows are saved to your pl8list library."
+    : "not connected. Resync signs you in with pl8list once to read your feed and library.";
+  disconnectBtn.hidden = !connected;
+}
+
+syncBtn.addEventListener("click", async () => {
+  try {
+    await postJSON("/account/pl8list/sync");
+    toast("syncing with pl8list…");
+    showSync({ connected: true, synced_at: Date.now() / 1000 });
+  } catch (err) {
+    if (err.status === 409) showLogin({ resync: true });
+    else toast(err.message, 4000);
+  }
+});
+
+disconnectBtn.addEventListener("click", async () => {
+  try {
+    await postJSON("/account/pl8list/disconnect");
+    showSync({ connected: false });
+    toast("disconnected from pl8list");
+  } catch (err) {
+    toast(err.message, 4000);
+  }
+});
+
+accountBtn.addEventListener("click", async () => {
+  if (!togglePanel(accountPanel)) return;
+  deleteForm.hidden = true;
+  const res = await fetch("/local/me");
+  if (res.ok) showSync((await res.json()).pl8list);
 });
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
@@ -732,7 +815,9 @@ deleteForm.addEventListener("submit", async (e) => {
   }
 });
 
-function signedIn(user) {
+function signedIn(user, pl8list) {
+  signedInUser = user;
+  if (pl8list) showSync(pl8list);
   loginEl.hidden = true;
   document.getElementById("bar").hidden = false;
   accountBtn.textContent = `@${user.handle}`;
@@ -746,6 +831,9 @@ function signedIn(user) {
 
 (async () => {
   const res = await fetch("/local/me");
-  if (res.ok) signedIn((await res.json()).user);
+  if (res.ok) {
+    const me = await res.json();
+    signedIn(me.user, me.pl8list);
+  }
   else showLogin();
 })();

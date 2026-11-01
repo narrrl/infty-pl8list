@@ -6,7 +6,7 @@
 //!
 //! Public data (artist pages, related tracks, previews, free tracks) works without
 //! an account, so the crawler runs as a guest. A user's own session is only needed
-//! for login and for reading their personal feed.
+//! for login and for syncing with their account (feed, library, saves).
 
 pub mod login;
 pub mod normalize;
@@ -71,20 +71,17 @@ impl Pl8 {
     }
 
     pub fn request(&self, url: Url, session: Option<&SecretString>) -> reqwest::RequestBuilder {
-        let req = self.http.get(url);
-        match session {
-            Some(s) => req.header("Cookie", format!("_session={}", s.expose_secret())),
-            None => req,
-        }
+        with_session(self.http.get(url), session)
     }
 
-    /// JSON GET with retries on overload. 403/404 give `None`.
+    /// JSON GET with retries on overload. 403/404 give `None`. With a user session,
+    /// a redirect to the login page gives `SessionExpired`.
     pub async fn get_json(
         &self,
         segments: &[&str],
         params: &[(&str, String)],
         route: Option<&str>,
-        session: Option<&SecretString>,
+        mut session: Option<&mut UserSession>,
     ) -> anyhow::Result<Option<Value>> {
         let mut url = self.url(segments);
         {
@@ -98,7 +95,10 @@ impl Pl8 {
         }
         for attempt in 0..4u32 {
             self.throttle().await;
-            let res = self.request(url.clone(), session).send().await?;
+            let res = self.request(url.clone(), session.as_deref().map(|s| &s.cookie)).send().await?;
+            if let Some(s) = session.as_deref_mut() {
+                s.update(&res)?;
+            }
             match res.status() {
                 s if s.is_success() => {
                     let body = res.bytes().await?;
@@ -122,7 +122,7 @@ impl Pl8 {
     // Paginated loaders ignore `page` unless `pagination=true` is also set,
     // which is what the site's own useInfiniteLoading hook sends.
 
-    pub async fn root(&self, session: Option<&SecretString>) -> anyhow::Result<Option<Value>> {
+    pub async fn root(&self, session: Option<&mut UserSession>) -> anyhow::Result<Option<Value>> {
         self.get_json(&[], &[], Some("root"), session).await
     }
 
@@ -130,9 +130,21 @@ impl Pl8 {
         self.get_json(&[], &[], Some("routes/_index"), None).await
     }
 
-    pub async fn feed(&self, session: &SecretString, page: i64) -> anyhow::Result<Option<Value>> {
+    pub async fn feed(&self, session: &mut UserSession, page: i64) -> anyhow::Result<Option<Value>> {
         let p = [("page", page.to_string()), ("pagination", "true".into())];
         self.get_json(&["api", "feed"], &p, None, Some(session)).await
+    }
+
+    /// Tracks the user saved on pl8list (`items`, `totalPages`).
+    pub async fn library_tracks(&self, session: &mut UserSession, page: i64) -> anyhow::Result<Option<Value>> {
+        let p = [("page", page.to_string()), ("pagination", "true".into())];
+        self.get_json(&["library", "tracks"], &p, Some("routes/library.tracks"), Some(session)).await
+    }
+
+    /// Artists the user saved (follows) on pl8list (`items`, `totalPages`).
+    pub async fn library_artists(&self, session: &mut UserSession, page: i64) -> anyhow::Result<Option<Value>> {
+        let p = [("page", page.to_string()), ("pagination", "true".into())];
+        self.get_json(&["library", "artists"], &p, Some("routes/library.artists"), Some(session)).await
     }
 
     pub async fn artist(&self, handle: &str, page: i64) -> anyhow::Result<Option<Value>> {
@@ -157,6 +169,25 @@ impl Pl8 {
         self.get_json(&["search", "users"], &p, Some("routes/search.users"), None).await
     }
 
+    /// Save a track (`[handle, slug]`) or an artist (`[handle]`) to the user's pl8list
+    /// library. `addOnly` makes the toggle idempotent: it never removes anything.
+    pub async fn save(&self, session: &mut UserSession, target: &[&str]) -> anyhow::Result<()> {
+        let mut segments = vec!["api"];
+        segments.extend_from_slice(target);
+        segments.push("add-to-library");
+        let mut url = self.url(&segments);
+        url.query_pairs_mut().append_pair("addOnly", "true");
+        self.throttle().await;
+        let res = with_session(self.http.post(url), Some(&session.cookie)).send().await?;
+        session.update(&res)?;
+        let status = res.status();
+        let body: Value = res.json().await.unwrap_or(Value::Null);
+        if !status.is_success() || body.get("success").and_then(Value::as_bool) == Some(false) {
+            anyhow::bail!("pl8list refused the save (HTTP {status})");
+        }
+        Ok(())
+    }
+
     /// End a session at pl8list. Errors are ignored: we drop the session either way.
     pub async fn logout(&self, session: &SecretString) {
         let mut url = self.url(&["logout"]);
@@ -168,5 +199,66 @@ impl Pl8 {
 
     pub fn http(&self) -> &reqwest::Client {
         &self.http
+    }
+}
+
+fn with_session(req: reqwest::RequestBuilder, session: Option<&SecretString>) -> reqwest::RequestBuilder {
+    match session {
+        Some(s) => req.header("Cookie", format!("_session={}", s.expose_secret())),
+        None => req,
+    }
+}
+
+/// pl8list no longer accepts the session; the user has to sign in again.
+#[derive(Debug)]
+pub struct SessionExpired;
+
+impl std::fmt::Display for SessionExpired {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("pl8list session expired")
+    }
+}
+
+impl std::error::Error for SessionExpired {}
+
+/// A signed-in pl8list session used on a user's behalf. pl8list may send a new
+/// cookie with any response; `changed` tells the owner to store it again.
+pub struct UserSession {
+    cookie: SecretString,
+    pub changed: bool,
+}
+
+impl UserSession {
+    pub fn new(cookie: SecretString) -> Self {
+        UserSession { cookie, changed: false }
+    }
+
+    pub fn cookie(&self) -> &SecretString {
+        &self.cookie
+    }
+
+    pub fn into_cookie(self) -> SecretString {
+        self.cookie
+    }
+
+    /// Take a refreshed cookie from `res`, and notice when pl8list sends us to its login.
+    fn update(&mut self, res: &reqwest::Response) -> Result<(), SessionExpired> {
+        let to_login = |p: &str| p == "/login" || p.starts_with("/login?");
+        let remix_redirect = res.headers().get("x-remix-redirect").and_then(|v| v.to_str().ok());
+        if to_login(res.url().path()) || remix_redirect.is_some_and(to_login) {
+            return Err(SessionExpired);
+        }
+        for c in res.headers().get_all("set-cookie") {
+            let Some(v) = c.to_str().ok().and_then(|c| c.strip_prefix("_session=")) else { continue };
+            let v = v.split(';').next().unwrap_or_default();
+            if v.is_empty() {
+                return Err(SessionExpired);
+            }
+            if v != self.cookie.expose_secret() {
+                self.cookie = SecretString::from(v.to_string());
+                self.changed = true;
+            }
+        }
+        Ok(())
     }
 }

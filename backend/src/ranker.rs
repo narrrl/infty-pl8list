@@ -5,6 +5,7 @@
 //!     popularity   log-scaled saves/downloads/purchases/comments, normalised to 0..1
 //!     freshness    exp(-age / 21 days)
 //!     artist       learned from your events on that artist's tracks (likes, full listens, skips)
+//!                  and whether you follow them
 //!     tempo / key  closeness to the BPM and key of tracks you liked or finished
 //!     related      track came from the "related" page of something you liked
 //!     exploration  Gumbel noise, so the feed never freezes into one niche
@@ -79,6 +80,8 @@ fn event_signal(kind: &str) -> f64 {
         _ => 0.0,
     }
 }
+/// Following an artist (here or on pl8list) counts like a few likes of their tracks.
+const FOLLOW_SIGNAL: f64 = 4.0;
 const REPEAT_ARTIST_PENALTY: f64 = 1.5;
 const RECENT_ARTIST_WINDOW: i64 = 6;
 
@@ -135,6 +138,9 @@ pub fn taste(conn: &Connection, user_id: i64) -> rusqlite::Result<Taste> {
             }
             _ => {}
         }
+    }
+    for handle in crate::db::follows(conn, user_id)? {
+        *artist.entry(handle).or_default() += FOLLOW_SIGNAL;
     }
     let liked_set: HashSet<i64> = liked.iter().map(|l| l.0).collect();
     let positive: Vec<_> = completed.iter().filter(|c| !liked_set.contains(&c.0)).chain(liked.iter()).collect();

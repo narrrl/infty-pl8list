@@ -117,6 +117,11 @@ button {
 #account { width: min(20rem, calc(100vw - 2rem)); display: flex; flex-direction: column; align-items: flex-start; gap: 0.7rem; }
 #account h2 { margin: 0; font-size: 1rem; }
 #account a { font-size: 0.85rem; color: var(--muted); }
+#sync { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem;
+  padding-bottom: 0.7rem; border-bottom: 1px solid #ffffff14; }
+#sync h3 { margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+#sync-status { margin: 0; font-size: 0.85rem; color: var(--muted); }
+#sync-status.on::before { content: "● "; color: #3ddc84; }
 #delete-form { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; }
 #delete-form label { color: var(--muted); font-size: 0.85rem; }
 #delete-form input { padding: 0.4em 0.6em; border-radius: 8px; border: 1px solid #444; background: #111; }
@@ -216,8 +221,17 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .title { font-size: 1.25rem; margin: 0; overflow-wrap: anywhere; }
+.byline { display: flex; align-items: center; gap: 0.6rem; }
 .artist { color: var(--muted); text-decoration: none; }
 .artist:hover { text-decoration: underline; }
+.follow {
+  font-size: 0.75rem;
+  padding: 0.15em 0.75em;
+  border-radius: 999px;
+  border: 1px solid #ffffff40;
+  background: transparent;
+}
+.follow.on { background: #ffffff1f; border-color: transparent; color: var(--muted); }
 
 .chips { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: center; }
 .chips span {
@@ -432,6 +446,10 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 .login-box button[type=submit] { background: var(--accent); border: none; color: #fff; padding: 0.7em; font-weight: 600; }
 .login-box button[disabled] { opacity: 0.6; cursor: wait; }
 .login-links { display: flex; justify-content: space-between; }
+.login-box label.check { display: flex; gap: 0.6rem; align-items: flex-start; color: var(--fg); cursor: pointer; }
+.check input { margin-top: 0.2rem; accent-color: var(--accent); }
+.check small { display: block; margin-top: 0.2rem; color: #777; font-size: 0.75rem; line-height: 1.4; }
+#login-cancel { align-self: center; }
 .link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; font-size: 0.85rem; }
 #login-error { margin: 0; min-height: 1.2em; color: var(--accent); font-size: 0.9rem; }
 .fineprint { margin: 0; color: #666; font-size: 0.75rem; }

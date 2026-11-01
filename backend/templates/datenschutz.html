@@ -26,7 +26,7 @@
     <ul>
       <li>Sie melden sich mit Ihrem pl8list-Konto an. Ihre E-Mail-Adresse und der Anmeldecode gehen dafür an pl8list.</li>
       <li>Wir speichern Ihr pl8list-Profil (ID, Nutzername, Anzeigename, Profilbild-ID) und was Sie hier hören, liken und überspringen, um Ihnen passende Tracks vorzuschlagen.</li>
-      <li>Ihre pl8list-Anmeldung speichern wir nie. Wir nutzen sie einmal kurz im Arbeitsspeicher und melden sie danach bei pl8list ab.</li>
+      <li>Ihre pl8list-Anmeldung speichern wir nur, wenn Sie „stay connected to pl8list“ wählen, und dann verschlüsselt mit einem Schlüssel, den nur Ihr Browser hat. Sonst nutzen wir sie einmal kurz im Arbeitsspeicher und melden sie danach bei pl8list ab.</li>
       <li>Keine Werbung, kein Tracking, keine Analyse-Tools, keine Inhalte von Drittanbietern im Browser.</li>
       <li>Sie können Ihre Daten jederzeit selbst herunterladen und Ihr Konto löschen.</li>
     </ul>
@@ -51,40 +51,68 @@
     <ol>
       <li>Ihre E-Mail-Adresse wird an pl8list.com übermittelt. pl8list sendet Ihnen daraufhin einen sechsstelligen Code.</li>
       <li>Den Code, den Sie hier eingeben, leiten wir an pl8list weiter. Ist er richtig, meldet pl8list unseren Server mit Ihrem Konto an.</li>
-      <li>Mit dieser Anmeldung lesen wir einmalig Ihre persönliche pl8list-Übersicht (Künstler in Ihrer Bibliothek), um die Vorschläge zu verbessern. Das dauert höchstens zwei Minuten. Danach melden wir die Sitzung bei pl8list ab und verwerfen sie. Sie wird weder auf Datenträger geschrieben noch protokolliert.</li>
+      <li>Mit dieser Anmeldung lesen wir einmalig Ihre persönliche pl8list-Übersicht und Ihre pl8list-Bibliothek: gespeicherte Tracks übernehmen wir als Likes, gespeicherte Künstler als „folgen“, um die Vorschläge zu verbessern. Das dauert höchstens zwei Minuten. Danach melden wir die Sitzung bei pl8list ab und verwerfen sie. Sie wird weder auf Datenträger geschrieben noch protokolliert, außer Sie wählen Abschnitt 5.</li>
       <li>Von pl8list übernehmen wir Ihre pl8list-Nutzer-ID, Ihren Nutzernamen, Ihren Anzeigenamen und die ID Ihres Profilbilds.</li>
     </ol>
     <p>
       Ihre E-Mail-Adresse speichern wir nicht dauerhaft. Sie liegt nur während der Anmeldung (höchstens
-      15 Minuten) im Arbeitsspeicher, zusätzlich zum Schutz vor Missbrauch (siehe Abschnitt 8).
+      15 Minuten) im Arbeitsspeicher, zusätzlich zum Schutz vor Missbrauch (siehe Abschnitt 9).
       Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO: Sie möchten die Anmeldung mit Ihrem pl8list-Konto
       nutzen. Für die Verarbeitung bei pl8list selbst ist pl8list verantwortlich; es gilt deren
       Datenschutzerklärung auf pl8list.com.
     </p>
 
-    <h2>5. Konto und Sitzung</h2>
+    <h2>5. Mit pl8list verbunden bleiben (freiwillig)</h2>
+    <p>
+      Bei der Anmeldung können Sie „stay connected to pl8list on this device“ wählen. Diese Einstellung gilt nur für das
+      Gerät bzw. den Browser, auf dem Sie sie wählen. Dann gilt zusätzlich:
+    </p>
+    <ul>
+      <li>Wir speichern Ihre pl8list-Sitzung (das Anmelde-Cookie von pl8list) verschlüsselt (XChaCha20-Poly1305).
+        Der Schlüssel wird aus Ihrem Sitzungs-Cookie bei uns (Abschnitt 6) und einem Serverschlüssel abgeleitet.
+        Ihr Sitzungs-Cookie liegt nur in Ihrem Browser; bei uns liegt davon nur ein Hashwert. Ohne Ihren Browser
+        können also weder wir noch jemand mit einer Kopie unserer Datenbank die pl8list-Sitzung entschlüsseln.
+        Entschlüsselt wird sie nur, während Ihr Browser eine Anfrage an uns stellt, und nur im Arbeitsspeicher.</li>
+      <li>Damit gleichen wir Ihre pl8list-Übersicht und -Bibliothek wie in Abschnitt 4 ab, wenn Sie die App nutzen
+        und der letzte Abgleich länger als sechs Stunden her ist, oder wenn Sie „resync with pl8list“ wählen.</li>
+      <li>Tracks, die Sie hier liken, und Künstler, denen Sie hier folgen, speichern wir in Ihrer pl8list-Bibliothek.
+        Wir fügen dort nur hinzu; wir entfernen nie etwas aus Ihrem pl8list-Konto.</li>
+      <li>Weitere Aktionen in Ihrem pl8list-Konto (z. B. Käufe, Kommentare, Profiländerungen) führen wir nicht aus.</li>
+    </ul>
+    <p>
+      Rechtsgrundlage ist Ihre Einwilligung (Art. 6 Abs. 1 lit. a DSGVO). Sie können sie jederzeit mit Wirkung für
+      die Zukunft widerrufen (Art. 7 Abs. 3 DSGVO): im Menü „account“ unter „stop staying connected on this device“, durch
+      Abmelden oder durch Löschen Ihres Kontos. Dann melden wir die pl8list-Sitzung dieses Geräts bei pl8list ab
+      und löschen sie sofort. Lehnt pl8list die Sitzung ab (z. B. weil sie abgelaufen ist), löschen wir sie
+      ebenfalls. Bitte beachten Sie: Ob pl8list eine abgemeldete Sitzung auf seiner Seite ungültig macht,
+      liegt nicht in unserer Hand.
+    </p>
+
+    <h2>6. Konto und Sitzung</h2>
     <p>
       Nach der Anmeldung legen wir ein Konto mit den Daten aus Abschnitt 4 an und merken uns den Zeitpunkt
       der Erstellung und der letzten Nutzung. Ihr Browser erhält ein Sitzungs-Cookie mit einer Zufallszahl.
       Bei uns liegt davon nur ein Hashwert, sodass auch wir das Cookie daraus nicht wiederherstellen können.
-      Eine Sitzung endet nach 30 Tagen ohne Nutzung oder sofort, wenn Sie sich abmelden.
+      Das Cookie erhält alle sieben Tage einen neuen Wert. Eine Sitzung endet nach 30 Tagen ohne Nutzung oder
+      sofort, wenn Sie sich abmelden.
       Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
     </p>
 
-    <h2>6. Vorschläge aus Ihrem Hörverhalten</h2>
+    <h2>7. Vorschläge aus Ihrem Hörverhalten</h2>
     <p>
       Wir speichern, welche Tracks Ihnen gezeigt wurden und ob Sie sie gehört (mit Hördauer), zu Ende gehört,
-      übersprungen, geliked oder als „nicht für mich“ markiert haben. Daraus berechnen wir automatisch, welche
+      übersprungen, geliked oder als „nicht für mich“ markiert haben, und welchen Künstlern Sie folgen (hier oder,
+      per Abgleich, auf pl8list). Daraus berechnen wir automatisch, welche
       Tracks wir Ihnen als Nächstes zeigen. Das ist eine Form von Profiling. Es hat keine rechtliche oder
       ähnlich erhebliche Wirkung für Sie; es bestimmt nur die Reihenfolge der Musik. Rechtsgrundlage ist
       Art. 6 Abs. 1 lit. b DSGVO, denn personalisierte Vorschläge sind der Zweck dieses Dienstes.
     </p>
     <p>
       Der Eintrag „gezeigt“ wird nach 180 Tagen gelöscht. Alle anderen Einträge bleiben, bis Sie Ihr Konto
-      löschen, weil sie Ihre Vorschläge und Ihre Like-Liste bilden.
+      löschen, weil sie Ihre Vorschläge, Ihre Like-Liste und Ihre gefolgten Künstler bilden.
     </p>
 
-    <h2>7. Audio und Bilder</h2>
+    <h2>8. Audio und Bilder</h2>
     <p>
       Musik und Profilbilder laden Sie nicht direkt von pl8list, sondern über unseren Server. pl8list erfährt
       dadurch Ihre IP-Adresse nicht. Abgerufene Audiodateien und Bilder legen wir auf unserem Server
@@ -92,7 +120,7 @@
       Die Programmbibliothek zum Abspielen (hls.js) liefern wir selbst aus.
     </p>
 
-    <h2>8. Schutz vor Missbrauch</h2>
+    <h2>9. Schutz vor Missbrauch</h2>
     <p>
       Jede Anmeldung lässt pl8list eine E-Mail verschicken. Damit niemand diesen Dienst nutzt, um fremde
       Postfächer zu überfluten oder Codes zu erraten, begrenzen wir Anmeldeversuche je IP-Adresse und je
@@ -102,9 +130,9 @@
       (höchstens etwa 3 MB). Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO.
     </p>
 
-    <h2>9. Cookies und lokaler Speicher</h2>
+    <h2>10. Cookies und lokaler Speicher</h2>
     <ul>
-      <li><code>__Host-pl8inf</code>: Ihre Sitzung, bis zu 30 Tage ohne Nutzung.</li>
+      <li><code>__Host-pl8inf</code>: Ihre Sitzung, bis zu 30 Tage ohne Nutzung. Wenn Sie verbunden bleiben, ist es auch Teil des Schlüssels für Ihre pl8list-Sitzung (Abschnitt 5).</li>
       <li><code>__Host-pl8inf_login</code>: verbindet die beiden Schritte der Anmeldung, 15 Minuten.</li>
       <li>Im lokalen Speicher Ihres Browsers: Ihre Filter (z. B. BPM-Bereich) und ob Sie den Bedienhinweis schon gesehen haben.</li>
     </ul>
@@ -113,24 +141,25 @@
       Deshalb fragen wir nicht nach einer Einwilligung. Andere Cookies, Tracking oder Analyse-Tools gibt es nicht.
     </p>
 
-    <h2>10. Empfänger und Drittländer</h2>
+    <h2>11. Empfänger und Drittländer</h2>
     <p>
       Außer an pl8list (Abschnitt 4) und den Hosting-Anbieter (Abschnitt 3) geben wir keine Daten weiter.
       Wir selbst übermitteln keine Daten in Länder außerhalb der EU bzw. des EWR.
     </p>
 
-    <h2>11. Ihre Rechte</h2>
+    <h2>12. Ihre Rechte</h2>
     <p>Sie haben das Recht auf</p>
     <ul>
-      <li>Auskunft (Art. 15 DSGVO) und Datenübertragbarkeit (Art. 20 DSGVO): im Menü „Konto“ unter „Daten herunterladen“ erhalten Sie alle über Sie gespeicherten Daten als JSON-Datei;</li>
-      <li>Löschung (Art. 17 DSGVO): im Menü „Konto“ unter „Konto löschen“ entfernen Sie Konto, Sitzungen und Hörverlauf sofort und vollständig;</li>
+      <li>Auskunft (Art. 15 DSGVO) und Datenübertragbarkeit (Art. 20 DSGVO): im Menü „account“ unter „download my data“ erhalten Sie alle über Sie gespeicherten Daten als JSON-Datei;</li>
+      <li>Löschung (Art. 17 DSGVO): im Menü „account“ unter „delete account“ entfernen Sie Konto, Sitzungen, gespeicherte pl8list-Sitzungen, gefolgte Künstler und Hörverlauf sofort und vollständig;</li>
+      <li>Widerruf einer Einwilligung (Art. 7 Abs. 3 DSGVO), siehe Abschnitt 5;</li>
       <li>Berichtigung (Art. 16 DSGVO) und Einschränkung der Verarbeitung (Art. 18 DSGVO);</li>
       <li>Widerspruch (Art. 21 DSGVO) gegen Verarbeitungen, die auf Art. 6 Abs. 1 lit. f DSGVO beruhen, aus Gründen, die sich aus Ihrer besonderen Situation ergeben;</li>
       <li>Beschwerde bei einer Datenschutz-Aufsichtsbehörde (Art. 77 DSGVO), insbesondere in dem Mitgliedstaat Ihres Aufenthaltsorts oder Arbeitsplatzes.</li>
     </ul>
     <p>Für alle Anliegen genügt eine E-Mail an {{email}}.</p>
 
-    <h2>12. Pflicht zur Bereitstellung</h2>
+    <h2>13. Pflicht zur Bereitstellung</h2>
     <p>
       Sie sind nicht verpflichtet, uns Daten zu geben. Ohne Anmeldung können Sie den Dienst aber nicht nutzen,
       weil die Vorschläge an Ihr Konto gebunden sind.
@@ -140,9 +169,14 @@
     <p>
       This site is not affiliated with pl8list. To sign in, your email address and login code are passed to
       pl8list.com, which sends you the code. We keep your pl8list user id, handle, display name and avatar id,
-      plus what you are shown, play, finish, skip, like or mark "not for me", to recommend tracks. Your
-      pl8list login is never stored: we use it once, in memory, for at most two minutes to read your pl8list
-      library, then log it out at pl8list. Audio and images are fetched through our server, so pl8list does not
+      plus what you are shown, play, finish, skip, like or mark "not for me" and which artists you follow, to
+      recommend tracks. By default your pl8list login is used once, in memory, for at most two minutes to read
+      your pl8list feed and library (saved tracks become likes, saved artists follows), then logged out at
+      pl8list. If you choose "stay connected" (consent, Art. 6(1)(a) GDPR, per device), we store it encrypted
+      with a key derived from your session cookie, which only your browser holds, and use it while you use the
+      app to resync every six hours and to add what you like and follow here to your pl8list library. We never
+      remove anything from or do anything else with your pl8list account. Withdraw at any time under "account"
+      (stop staying connected, sign out, or delete account); we then log the session out and delete it. Audio and images are fetched through our server, so pl8list does not
       see your IP address. We use only the cookies listed above, which are strictly necessary; there is no
       tracking or analytics. IP and email address are held in memory for up to 15 minutes to rate-limit
       sign-ins. You can download all your data and delete your account in the "account" menu at any time.

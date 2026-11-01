@@ -9,8 +9,8 @@
 //! The catalogue is shared by all users and crawled as a guest. The crawler runs
 //! at full pace only while someone has used the app recently.
 //!
-//! A user's pl8list session never enters the queue: `crawl_feed` owns it in its own
-//! task, reads the personal feed, logs the session out at pl8list and drops it.
+//! A user's pl8list session never enters the queue; account sync (`sync.rs`) reads
+//! with it and only hands the artists it found to `discovered_artists`.
 
 use std::{
     cmp::Reverse,
@@ -19,7 +19,6 @@ use std::{
     time::Duration,
 };
 
-use secrecy::SecretString;
 use serde_json::Value;
 use tokio::{sync::Notify, time::Instant};
 
@@ -48,8 +47,6 @@ const IDLE_DELAY: Duration = Duration::from_secs(20); // extra wait between requ
 const MIN_POOL: i64 = 500; // crawl at full pace until the catalogue has this many tracks
 const REFRESH_AFTER: f64 = 86400.0; // re-check an artist's newest page for uploads this often
 const RESEED_EVERY: Duration = Duration::from_secs(600);
-const FEED_MAX_PAGES: i64 = 20;
-const FEED_DEADLINE: Duration = Duration::from_secs(120);
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum Job {
@@ -140,37 +137,10 @@ impl Crawler {
         }
     }
 
-    /// Read the user's personal feed (artists in their pl8list library) with their
-    /// freshly logged-in session, then end that session at pl8list. Takes ownership
-    /// of the session; it is dropped (and zeroed) when this task ends.
-    pub fn crawl_feed(self: &Arc<Self>, session: SecretString) {
-        let me = self.clone();
-        tokio::spawn(async move {
-            let res = tokio::time::timeout(FEED_DEADLINE, me.read_feed(&session)).await;
-            match res {
-                Ok(Ok(pages)) => tracing::info!("personal feed: {pages} pages"),
-                Ok(Err(e)) => tracing::warn!("personal feed failed: {e:#}"),
-                Err(_) => tracing::warn!("personal feed timed out"),
-            }
-            me.pl8.logout(&session).await;
-        });
-    }
-
-    async fn read_feed(&self, session: &SecretString) -> anyhow::Result<i64> {
-        let mut page = 1;
-        loop {
-            let d = self.pl8.feed(session, page).await?.unwrap_or(Value::Null);
-            let list = d.get("tracks");
-            let rows = normalize::items(list);
-            for r in &rows {
-                self.push(P_ARTIST_FIRST, Job::Artist(r.handle.clone()));
-            }
-            self.db.call(move |c| db::upsert_tracks(c, &rows, None)).await?;
-            let total = d.get("totalPages").and_then(Value::as_i64).unwrap_or(0);
-            if page >= total.min(FEED_MAX_PAGES) {
-                return Ok(page);
-            }
-            page += 1;
+    /// Artists found in a user's pl8list feed or library: crawl them soon.
+    pub fn discovered_artists(&self, handles: impl IntoIterator<Item = String>) {
+        for h in handles {
+            self.push(P_ARTIST_FIRST, Job::Artist(h));
         }
     }
 

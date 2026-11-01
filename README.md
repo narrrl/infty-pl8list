@@ -53,6 +53,8 @@ Data (catalogue, users, listening history) lives in the `data` volume as one SQL
 | `PUBLIC_ORIGIN` | unset            | `https://host` of the site; POSTs with any other `Origin` are refused |
 | `CACHE_DIR`   | `cache` next to DB | disk cache for audio segments and artist images   |
 | `CACHE_MAX_MB` | `2048`            | cache size limit, least recently used files go first |
+| `LINK_KEY`    | unset              | server half of the key for stored pl8list sessions (base64, 32 bytes) |
+| `LINK_KEY_FILE` | `link.key` next to DB | used when `LINK_KEY` is unset; created on first start |
 | `INSECURE_COOKIES` | `0`           | `1` only for plain-http development from another machine |
 | `IMPRESSUM_NAME`, `IMPRESSUM_ADDRESS`, `IMPRESSUM_EMAIL`, `IMPRESSUM_PHONE` | empty | operator details for `/impressum` and `/datenschutz`; separate address lines with `\|` |
 | `HOSTING_PROVIDER` | empty         | hosting company and address, named in the privacy policy |
@@ -68,10 +70,27 @@ There are no passwords here. Users sign in with the email of their pl8list accou
    own session cookie (`__Host-pl8inf`, Secure, HttpOnly, SameSite=Lax). It ends after 30 days
    without use and gets a new token every 7 days.
 
-The pl8list session from step 2 is used once, in memory, to read the user's personal pl8list
-feed (artists in their library). It is never written to disk, and when the feed has been
-read (or reading it fails) the server logs that session out at pl8list. Only a SHA-256 hash
-of the local session token is stored.
+By default the pl8list session from step 2 is used once, in memory, to sync with the user's
+pl8list account: their personal feed, their saved tracks (they become likes here) and their
+saved artists (they become follows). It is never written to disk, and when the sync is done
+(or fails) the server logs that session out at pl8list. Only a SHA-256 hash of the local
+session token is stored.
+
+**Stay connected** is an opt-in checkbox at sign-in, per device. Then the pl8list session is
+stored in that device's `sessions` row, encrypted with XChaCha20-Poly1305 under a key derived
+(HKDF-SHA256) from the device's local session token and a server key (`LINK_KEY`). The
+token only exists in the browser cookie, so a copy of the database, even with the server key,
+opens nothing; the server can only decrypt during that device's own requests. With it, the
+app resyncs on use every 6 hours and on the "resync with pl8list" button, and saves new
+likes and follows to the user's pl8list library (`add-to-library?addOnly=true`, so it never
+removes anything). If pl8list sends a new cookie it is stored again; if pl8list redirects to
+its login, the stored session is deleted. Weekly token rotation re-encrypts it for the new
+token. "stop staying connected", sign out and account deletion log it out at pl8list and
+delete it. pl8list's `_session` is a signed cookie, so their logout may not invalidate a copy;
+treat a stored session as long-lived.
+
+Without stay connected, "resync with pl8list" in the account menu runs the email-code sign-in
+again and syncs once.
 
 Every login start and resend makes pl8list send a mail, so they are rate-limited: 5 per IP
 and 3 per email per 15 minutes, 30 per 10 minutes for the whole server, at most 2 resends
@@ -79,8 +98,9 @@ and 5 code attempts per login, and at most 500 logins pending at once. Behind a 
 (`TRUSTED_PROXY_HOPS=1`) the client IP is the last `X-Forwarded-For` entry, the one the proxy
 added; IPv6 addresses are limited per /64.
 
-The "account" menu lets users download everything stored about them (JSON), sign out on all
-devices, or delete their account (likes, history and sessions, right away). Expired sessions
+The "account" menu shows the pl8list sync state and lets users resync, stop staying connected,
+download everything stored about them (JSON), sign out on all devices, or delete their account
+(likes, follows, history and sessions, right away). Expired sessions
 are purged hourly and "served" events after 180 days. The browser only ever talks to this
 server: hls.js is self-hosted in `static/vendor/` and audio and images are proxied, so no
 visitor address reaches pl8list or a CDN.
@@ -93,6 +113,7 @@ visitor address reaches pl8list or a CDN.
 | double-tap       | double-click · l     | like                           |
 | swipe up / down  | ↓ j · ↑ k            | next / previous                |
 | drag waveform    | drag waveform · ← →  | seek                           |
+| follow button    | f                    | follow the artist              |
 | ✕ button         | x                    | not for me (skip, show less)   |
 | share button     | s                    | share / copy link              |
 |                  | m                    | mute                           |
@@ -119,6 +140,9 @@ pl8list has no public API, but it is a Remix app: every page loader returns JSON
 | `/<handle>/<slug>/related?_data=routes/$handle_.$slug.related`       | 3 related tracks                    |
 | `/api/<handle>/<slug>/hls/playlist.m3u8?v=<uploadId>[&preview=true]` | HLS audio                           |
 | `/login`, `/verify?email=…&mode=login`                               | email + 6-digit code login          |
+| `/library/tracks?page=N&pagination=true&_data=routes/library.tracks` | saved tracks (needs session)        |
+| `/library/artists?…&_data=routes/library.artists`                    | saved artists (needs session)       |
+| `POST /api/<handle>[/<slug>]/add-to-library?addOnly=true`            | save artist or track (needs session) |
 
 **Crawler** (`backend/src/crawler.rs`). There is no "all tracks" listing, so one shared catalogue grows by
 snowballing: home sections, the ticker, best-selling artists and artist search give artists;
@@ -129,7 +153,7 @@ one request every 20 seconds. When a user likes or finishes a track, its related
 its artist's catalogue are crawled first.
 
 **Ranking** (`backend/src/ranker.rs`). Each track the user has not seen yet gets a score from popularity,
-freshness, artist affinity (from their likes, completions, skips and "not for me"), closeness to the BPM and
+freshness, artist affinity (from their likes, completions, skips, "not for me" and follows), closeness to the BPM and
 key of tracks they liked, whether it is related to something they liked, and some random
 exploration. Artists are then spread out so you don't get five tracks from one person in a
 row. Weights live in a `Ranker`; `?mode=` on `/local/feed` picks one, so discovery modes

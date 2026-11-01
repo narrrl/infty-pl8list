@@ -135,7 +135,7 @@ pub async fn resend(State(app): St, peer: Peer, headers: HeaderMap) -> Res {
     Ok((no_store(), Json(json!({ "ok": true }))).into_response())
 }
 
-pub async fn verify(State(app): St, headers: HeaderMap, Json(body): Json<Value>) -> Res {
+pub async fn verify(State(app): St, Extension(current): Extension<CurrentUser>, headers: HeaderMap, Json(body): Json<Value>) -> Res {
     let id = login_cookie(&app, &headers).map(String::from);
     let Some(pending) = app.logins.get(id.as_deref()) else { return Ok(expired()) };
     let id = id.unwrap_or_default();
@@ -153,18 +153,36 @@ pub async fn verify(State(app): St, headers: HeaderMap, Json(body): Json<Value>)
         Err(e) => return Ok(json_error(StatusCode::BAD_REQUEST, &e.0)),
     };
     app.logins.drop(&id);
-    // The pl8list session goes straight to the feed crawl, which logs it out afterwards.
-    app.crawler.crawl_feed(pl8_session);
+    // "Stay connected" is opt-in per device; without it the session is used for one
+    // sync and then logged out at pl8list.
+    let stay = body.get("connect").and_then(Value::as_bool) == Some(true);
     let u = user.clone();
+    // Signing in again on a device (the resync button) replaces its old session.
+    let previous = current.token.clone();
+    if let Some(old) = app.connected(&current).await {
+        app.pl8.logout(&old.1).await;
+    }
     let token = app
         .db
         .call(move |c| {
+            if let Some(t) = previous {
+                db::delete_session(c, &t)?;
+            }
             db::upsert_user(c, u.id, &u.handle, u.name.as_deref(), u.img.as_deref())?;
             db::create_session(c, u.id)
         })
         .await?;
-    tracing::info!("signed in: {}", user.handle);
-    let mut res = (no_store(), Json(json!({ "user": { "handle": user.handle, "name": user.name } }))).into_response();
+    if stay {
+        let sealer = app.sync.key.sealer(&token, user.id);
+        let blob = sealer.seal(&pl8_session);
+        let hash = sealer.token_hash.clone();
+        app.db.call(move |c| db::set_link(c, &hash, &blob, Some(db::now()))).await?;
+        app.sync.linked(sealer, pl8_session);
+    } else {
+        app.sync.once(user.id, pl8_session);
+    }
+    tracing::info!("signed in: {}{}", user.handle, if stay { " (stays connected)" } else { "" });
+    let mut res = (no_store(), Json(json!({ "user": { "handle": user.handle, "name": user.name }, "connected": stay }))).into_response();
     let h = res.headers_mut();
     h.append(header::SET_COOKIE, app.cookies.set(SESSION_COOKIE, &token, (db::SESSION_IDLE_DAYS * 86400.0) as i64));
     h.append(header::SET_COOKIE, app.cookies.clear(LOGIN_COOKIE));
@@ -172,6 +190,9 @@ pub async fn verify(State(app): St, headers: HeaderMap, Json(body): Json<Value>)
 }
 
 pub async fn logout(State(app): St, Extension(current): Extension<CurrentUser>) -> Res {
+    if let Some((_, session)) = app.connected(&current).await {
+        app.pl8.logout(&session).await;
+    }
     if let Some(token) = current.token {
         app.db.call(move |c| db::delete_session(c, &token)).await?;
     }
