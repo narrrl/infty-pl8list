@@ -105,6 +105,8 @@ export class Pager {
       el.style.transform = `translate3d(0, ${(p * h).toFixed(2)}px, 0)`;
       // 0 when resting in place, 1 one full page away; cards use it for depth effects.
       el.style.setProperty("--away", Math.min(1, Math.abs(p)).toFixed(3));
+      // Only the current card's buttons are reachable with the keyboard.
+      el.inert = i !== this.index;
     }
   }
 

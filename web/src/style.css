@@ -9,6 +9,8 @@
   --accent: #ff4d6d;
   --panel: rgba(18, 18, 20, 0.94);
   --line: #ffffff1f;
+  --line-strong: #333;
+  --scrim: #000b;
   --glass: rgba(255, 255, 255, 0.1);
   --glass-strong: rgba(255, 255, 255, 0.2);
   --radius-s: 8px;
@@ -49,6 +51,9 @@ button {
 }
 
 [hidden] { display: none !important; }
+
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
@@ -114,10 +119,10 @@ button {
   top: calc(3rem + env(safe-area-inset-top));
   right: 1rem;
   background: var(--panel);
-  border: 1px solid #333;
-  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
   padding: 0.8rem 1rem;
-  box-shadow: 0 16px 40px #000a;
+  box-shadow: var(--shadow);
 }
 
 #filters { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; max-width: 24rem; }
@@ -301,7 +306,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   bottom: 0.7rem;
   z-index: 30;
   border-radius: var(--radius-s);
-  background: #000b;
+  background: var(--scrim);
   pointer-events: none;
 }
 
@@ -492,7 +497,9 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s, transform 0.2s;
-  white-space: nowrap;
+  max-width: calc(100vw - 2rem);
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
@@ -519,7 +526,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   align-items: center;
   justify-content: center;
   gap: 1rem;
-  background: #000b;
+  background: var(--scrim);
   cursor: pointer;
 }
 #start button { font-size: 1.3rem; padding: 0.7em 1.6em; background: var(--accent); border: none; color: #fff; }
@@ -532,7 +539,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: #000b;
+  background: var(--scrim);
   animation: fade 0.2s ease;
 }
 .station-box {
@@ -541,7 +548,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   max-height: calc(100dvh - 2rem);
   overflow-y: auto;
   background: var(--panel);
-  border: 1px solid #333;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-l);
   padding: 1.4rem;
   display: flex;
@@ -626,7 +633,7 @@ button.primary svg { width: 1em; height: 1em; }
   padding: 1rem;
   border-radius: var(--radius-m);
   background: var(--panel);
-  border: 1px solid #333;
+  border: 1px solid var(--line-strong);
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -643,15 +650,15 @@ button.primary svg { width: 1em; height: 1em; }
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: #000b;
+  background: var(--scrim);
   animation: fade 0.2s ease;
 }
 @keyframes fade { from { opacity: 0; } }
 .help-box {
   width: min(22rem, 100%);
   background: var(--panel);
-  border: 1px solid #333;
-  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-l);
   padding: 1.2rem 1.4rem;
 }
 .help-box h2 { margin: 0 0 0.8rem; font-size: 1.1rem; }
@@ -695,7 +702,7 @@ button.primary svg { width: 1em; height: 1em; }
 .login-box input {
   padding: 0.7em 0.9em;
   border-radius: 10px;
-  border: 1px solid #333;
+  border: 1px solid var(--line-strong);
   background: #111;
 }
 #code { font-family: ui-monospace, monospace; font-size: 1.4rem; letter-spacing: 0.5em; text-align: center; }

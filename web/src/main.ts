@@ -439,9 +439,20 @@ volumeSlider.addEventListener("wheel", (e) => {
   setVolume(player.volume - Math.sign(e.deltaY) * 0.05);
 }, { passive: false });
 
-const showHelp = () => { helpEl.hidden = false; };
-const hideHelp = () => { helpEl.hidden = true; };
+let helpOpener: HTMLElement | null = null;
+const showHelp = () => {
+  helpOpener = document.activeElement as HTMLElement | null;
+  helpEl.hidden = false;
+  $("help-close").focus();
+};
+const hideHelp = () => {
+  if (helpEl.hidden) return;
+  helpEl.hidden = true;
+  helpOpener?.focus();
+};
 $("help-btn").addEventListener("click", showHelp);
+// The bar has no room for "?" on phones; the account panel has a way in.
+$("help-open").addEventListener("click", () => { closePanels(); showHelp(); });
 $("help-close").addEventListener("click", hideHelp);
 helpEl.addEventListener("click", (e) => { if (e.target === helpEl) hideHelp(); });
 
@@ -475,7 +486,13 @@ function activateAgain(card: Card): void {
 likesBtn.addEventListener("click", async () => {
   if (!togglePanel(likesPanel)) return;
   const list = $("likes-list");
-  const { tracks } = await api.likes();
+  let tracks: Track[];
+  try {
+    ({ tracks } = await api.likes());
+  } catch (err) {
+    list.textContent = `couldn't load your likes: ${(err as Error).message}`;
+    return;
+  }
   list.replaceChildren(...tracks.map((t) => {
     const li = document.createElement("li");
     const btn = document.createElement("button");
@@ -646,8 +663,8 @@ document.addEventListener("keydown", (e) => {
     station.close();
     return;
   }
-  if (station.isOpen) return;
-  if (!loginEl.hidden) return;
+  if (k === "?") { helpEl.hidden ? showHelp() : hideHelp(); return; }
+  if (station.isOpen || !helpEl.hidden || !loginEl.hidden) return;
   if (!started) {
     if (k !== "Tab" && k !== "Shift") { e.preventDefault(); start(); }
     return;
@@ -669,7 +686,6 @@ document.addEventListener("keydown", (e) => {
   else if (k === "+" || k === "=") { setVolume(player.volume + 0.1); toast(`volume ${Math.round(player.volume * 100)}%`); }
   else if (k === "-") { setVolume(player.volume - 0.1); toast(`volume ${Math.round(player.volume * 100)}%`); }
   else if (k === "z") setZen(!document.body.classList.contains("zen"));
-  else if (k === "?") { helpEl.hidden ? showHelp() : hideHelp(); }
 });
 
 /// Zen: nothing but the drop and the music.
@@ -811,15 +827,16 @@ disconnectBtn.addEventListener("click", async () => {
   }
 });
 
-$("logout-btn").addEventListener("click", async () => {
-  await api.postJSON("/auth/logout");
-  location.reload();
-});
-
-$("logout-all-btn").addEventListener("click", async () => {
-  await api.postJSON("/account/logout-all");
-  location.reload();
-});
+for (const [id, url] of [["logout-btn", "/auth/logout"], ["logout-all-btn", "/account/logout-all"]]) {
+  $(id).addEventListener("click", async () => {
+    try {
+      await api.postJSON(url);
+      location.reload();
+    } catch (err) {
+      toast((err as Error).message, 4000);
+    }
+  });
+}
 
 $("delete-open").addEventListener("click", () => {
   deleteForm.hidden = false;
