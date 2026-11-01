@@ -1,4 +1,5 @@
 import "./style.css";
+import "@fontsource/bruno-ace-sc/400.css";
 
 import * as api from "./api";
 import type { Filters, Mode, Pl8Status, Stats, Track, User } from "./api";
