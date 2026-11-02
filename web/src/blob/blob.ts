@@ -413,11 +413,6 @@ export class LiquidBlob {
     ].join("\n");
   }
 
-  /// Stepped down to the lowest quality: the GPU had trouble keeping up.
-  get struggling(): boolean {
-    return this.quality === QUALITY.length - 1;
-  }
-
   /// Step the quality down when frames keep coming in slow, and back up once they
   /// have been on time for a while.
   private watch(dt: number): void {

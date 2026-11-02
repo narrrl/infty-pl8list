@@ -1,7 +1,6 @@
 // Per-frame visuals of the playing card: waveform progress, the liquid artwork drop
-// (blob/), the chrome title, waveform and logo (chrome.ts), and `--energy` (0..1)
-// for the stylesheet's glow and pulse, which is all there is where the drop is off
-// or WebGL2 is missing.
+// (blob/), and `--energy` (0..1) for the stylesheet's glow and pulse, which is all
+// there is where the drop is off or WebGL2 is missing.
 //
 // What drives them comes from features.ts: from the analyser where audio runs through
 // Web Audio, otherwise from the track's waveform at the current position.
@@ -10,7 +9,6 @@ import { artistImg } from "./api";
 import { LiquidBlob, SPILL } from "./blob/blob";
 import { lookFor } from "./blob/style";
 import type { Card } from "./cards";
-import { Chrome, type Light, type Plate, rgb, textMask } from "./chrome";
 import { accentFor, accentForName } from "./color";
 import { type Features, FeatureTracker } from "./features";
 import type { Player } from "./player";
@@ -20,48 +18,6 @@ const VISUALS_KEY = "pl8inf.visuals";
 const SLOP = 10; // px before a press on the drop turns it
 const REACH = 1.2; // how far past the art's radius the drop can be grabbed
 const IDLE_FPS = 15; // a paused drop keeps breathing, slowly and at a low frame rate
-// Chrome is drawn only when something on it changes: the light moving, a kick, a
-// bar of the waveform played, the sweep over a new title.
-const CHROME_FPS = 30; // at most, 20 on phones
-const TOUCH_CHROME_FPS = 20;
-const PAD = 16; // CSS px the chrome reaches past the text, for its side wall and shadow
-const BEVEL = 0.05; // of the font size
-const DEPTH = 0.05; // of the font size: how far the side wall reaches down …
-const WALL_MIN = 20; // … on text from this many CSS px; smaller text would clog up
-const SHADOW = 0.09; // of the font size: how far the shadow falls
-const SWEEP = 0.9; // s for the highlight to sweep across a new title
-const AIM = 4; // 1/s: how fast the light follows the pointer
-const KICK_STEP = 0.02; // a change in the kick envelope worth a frame
-const CHROME_BAR = 5; // CSS px per chrome waveform bar, gap included: wide enough to read as metal
-const LOGO_PAD = 10;
-const LOGO_TINT: [number, number, number] = [1, 0.3, 0.43];
-const REST_TILT: [number, number] = [0, -0.3];
-
-/// The card in chrome: its title and waveform plates, and what they show.
-interface Dressed {
-  card: Card;
-  titleEl: HTMLElement;
-  waveCanvas: HTMLCanvasElement;
-  title: Plate;
-  wave: Plate;
-  /// Placed as the layout now is; cleared when something may have moved, as
-  /// reading the layout on every frame would force it to be worked out each time.
-  placed: boolean;
-  layoutKey: string;
-  titleKey: string;
-  waveKey: string;
-  /// The waveform's width in CSS px and its number of bars.
-  waveW: number;
-  bars: number;
-  /// Bars played and loaded, as drawn.
-  played: number;
-  loaded: number;
-  tint: [number, number, number];
-  sweepFrom: number;
-  progress: number;
-  buffered: number;
-  observer: ResizeObserver;
-}
 
 export class Visualizer {
   private raf = 0;
@@ -80,21 +36,10 @@ export class Visualizer {
   /// A mouse rests on the drop.
   private hover = false;
   private idleTimer = 0;
-  /// Undefined until first needed; null where WebGL2 failed.
-  private chrome: Chrome | null | undefined;
-  private dressed: Dressed | null = null;
-  /// `measured` as for `Dressed.placed`.
-  private logo: { el: HTMLElement; canvas: HTMLCanvasElement; plate: Plate; key: string; measured: boolean; observer: ResizeObserver } | null = null;
-  /// Where the light comes from, and where the pointer wants it.
-  private tilt: [number, number] = [...REST_TILT];
-  private aim: [number, number] = [...REST_TILT];
-  private chromeAt = 0;
-  private chromeDirty = true;
-  private kickDrawn = 0;
   /// The playing card's art and glow, and the `--energy` they were last given.
   private energized: { el: HTMLElement; targets: HTMLElement[]; value: string } | null = null;
-  /// Frames and chrome draws counted for `?debug=drop`, shown once a second.
-  private stats = { from: 0, frames: 0, worst: 0, chrome: 0 };
+  /// Frames counted for `?debug=drop`, shown once a second.
+  private stats = { from: 0, frames: 0, worst: 0 };
 
   constructor(
     private player: Player,
@@ -104,7 +49,6 @@ export class Visualizer {
     this.reduced.addEventListener("change", () => this.attach(this.card, true));
     // Capturing, so a turn can keep its moves from the pager.
     const on = { capture: true, passive: true };
-    document.fonts?.addEventListener("loadingdone", () => this.redress());
     document.addEventListener("pointerdown", (e) => this.down(e), on);
     document.addEventListener("pointermove", (e) => this.move(e), on);
     for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, (e) => this.up(e as PointerEvent), on);
@@ -148,264 +92,6 @@ export class Visualizer {
     this.blob?.settleIcon();
   }
 
-  /// Chrome is part of the liquid look, and needs WebGL2 too.
-  private chromeOn(): Chrome | null {
-    if (this.setting !== "liquid" || this.chrome === null) return null;
-    if (this.chrome === undefined) {
-      this.chrome = Chrome.create();
-      if (this.chrome) this.chrome.onRestored = () => {
-        this.chromeDirty = true;
-        this.start();
-      };
-    }
-    if (this.chrome && !this.logo) this.dressLogo(this.chrome);
-    return this.chrome;
-  }
-
-  /// Put `card`'s title and waveform in chrome: the layer moves into the card.
-  private dress(card: Card | null): void {
-    const old = this.dressed;
-    if (old && (old.card !== card || !old.card.el)) this.strip(old);
-    const chrome = this.chromeOn();
-    if (!chrome) {
-      this.undress();
-      return;
-    }
-    const titleEl = card?.el?.querySelector<HTMLElement>(".title");
-    const waveCanvas = card?.waveCanvas;
-    if (!card || !titleEl || !waveCanvas || this.dressed) return;
-    titleEl.parentElement!.append(chrome.canvas);
-    chrome.clear();
-    // The waveform's own canvas stays, for seeking, but empty.
-    waveCanvas.getContext("2d")?.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
-    const color = getComputedStyle(card.el!).getPropertyValue("--card-accent").trim() || "#ff4d6d";
-    const d: Dressed = {
-      card,
-      titleEl,
-      waveCanvas,
-      title: chrome.plate("text"),
-      wave: chrome.plate("wave"),
-      placed: false,
-      layoutKey: "",
-      titleKey: "",
-      waveKey: "",
-      waveW: 0,
-      bars: 0,
-      played: -1,
-      loaded: -1,
-      tint: rgb(color),
-      sweepFrom: performance.now(),
-      progress: 0,
-      buffered: 0,
-      // Text loading around the title moves it; the layer follows.
-      observer: new ResizeObserver(() => {
-        d.placed = false;
-        d.layoutKey = "";
-        this.chromeDirty = true;
-        this.start();
-      }),
-    };
-    for (const el of [titleEl.parentElement!, titleEl, waveCanvas]) d.observer.observe(el);
-    this.dressed = d;
-    card.onWave = (progress, buffered) => {
-      d.progress = progress;
-      d.buffered = buffered;
-      const played = Math.floor(progress * d.bars), loaded = Math.floor(buffered * d.bars);
-      if (played === d.played && loaded === d.loaded) return;
-      d.played = played;
-      d.loaded = loaded;
-      this.chromeDirty = true;
-      this.start();
-    };
-    // The studio's floor shows the art, in the colour taken from it.
-    chrome.setArt(null, color);
-    const img = artistImg(card.track);
-    if (img) {
-      const pic = new Image();
-      pic.src = img;
-      Promise.all([pic.decode(), accentFor(img)]).then(([, c]) => {
-        if (this.dressed !== d) return;
-        chrome.setArt(pic, c ?? color);
-        if (c) d.tint = rgb(c);
-        this.chromeDirty = true;
-        this.start();
-      }, () => {});
-    }
-    this.chromeDirty = true;
-  }
-
-  /// Take the chrome off `d`'s card: plain text and the drawn waveform again.
-  private strip(d: Dressed): void {
-    d.card.onWave = null;
-    d.observer.disconnect();
-    d.titleEl.classList.remove("chromed");
-    this.chrome?.drop(d.title);
-    this.chrome?.drop(d.wave);
-    this.chrome?.canvas.remove();
-    d.card.drawWave(d.progress, true, d.buffered);
-    this.dressed = null;
-  }
-
-  /// Back to plain text and the drawn waveform everywhere.
-  private undress(): void {
-    if (this.dressed) this.strip(this.dressed);
-    for (const el of document.querySelectorAll(".chromed")) el.classList.remove("chromed");
-    if (this.logo) {
-      this.logo.canvas.remove();
-      this.logo.observer.disconnect();
-      this.chrome?.drop(this.logo.plate);
-    }
-    this.logo = null;
-  }
-
-  /// Fonts arrived: shapes are drawn again on the next frame.
-  private redress(): void {
-    if (this.dressed) {
-      this.dressed.placed = false;
-      this.dressed.layoutKey = this.dressed.titleKey = this.dressed.waveKey = "";
-    }
-    if (this.logo) {
-      this.logo.key = "";
-      this.logo.measured = false;
-    }
-    this.chromeDirty = true;
-    this.start();
-  }
-
-  private dressLogo(chrome: Chrome): void {
-    const el = document.querySelector<HTMLElement>(".logo b");
-    if (!el) return;
-    el.style.setProperty("--pad", `${LOGO_PAD}px`);
-    const logo = {
-      el,
-      canvas: plateCanvas(el),
-      plate: chrome.plate("text"),
-      key: "",
-      measured: false,
-      observer: new ResizeObserver(() => {
-        logo.measured = false;
-        this.redraw();
-      }),
-    };
-    logo.observer.observe(el);
-    this.logo = logo;
-  }
-
-  /// Size and place the layer over the title and the waveform, and draw their
-  /// shapes again where their size or text changed.
-  private reshape(chrome: Chrome, d: Dressed): boolean {
-    if (d.placed) return true;
-    const el = d.titleEl, c = d.waveCanvas, wrap = c.parentElement!;
-    if (!el.clientWidth || !c.clientWidth) return false;
-    // Layout offsets, not client rects: the card scales as it leaves.
-    const top = el.offsetTop - PAD;
-    const waveTop = wrap.offsetTop + c.offsetTop;
-    const width = el.parentElement!.clientWidth + 2 * PAD;
-    const height = waveTop + c.clientHeight + PAD - top;
-    const key = `${width}x${height}@${top}`;
-    if (key !== d.layoutKey) {
-      d.layoutKey = key;
-      const s = chrome.canvas.style;
-      s.left = `${-PAD}px`;
-      s.top = `${top}px`;
-      s.width = `${width}px`;
-      s.height = `${height}px`;
-      chrome.layout(width, height);
-    }
-    const tkey = `${el.clientWidth}x${el.clientHeight}:${el.textContent}`;
-    if (tkey !== d.titleKey) {
-      d.titleKey = tkey;
-      const size = parseFloat(getComputedStyle(el).fontSize);
-      const wall = size < WALL_MIN ? 0 : size * DEPTH;
-      chrome.shape(d.title, el.clientWidth + 2 * PAD, el.clientHeight + 2 * PAD, size * BEVEL, wall, size * SHADOW, (ctx) => textMask(el, PAD, ctx)).then((ok) => {
-        if (!ok) return;
-        // The sweep runs over the title once it is metal.
-        if (!el.classList.contains("chromed")) d.sweepFrom = performance.now();
-        el.classList.add("chromed");
-        this.redraw();
-      });
-    }
-    const wkey = `${c.clientWidth}x${c.clientHeight}`;
-    if (wkey !== d.waveKey) {
-      d.waveKey = wkey;
-      const [w, h] = [c.clientWidth, c.clientHeight];
-      chrome.shape(d.wave, w, h, CHROME_BAR * 0.25, 0, 0, (ctx) => {
-        const { base, tops } = d.card.waveMask(ctx, w, h, CHROME_BAR);
-        d.waveW = w;
-        d.bars = tops.length;
-        d.played = Math.floor(d.progress * d.bars);
-        d.loaded = Math.floor(d.buffered * d.bars);
-        d.wave.floor = base / h;
-        // One horizon runs through all the bars, as through one sheet of metal.
-        return [{ left: 0, top: Math.min(...tops), width: tops.length * CHROME_BAR, height: base - Math.min(...tops) }];
-      }).then((ok) => ok && this.redraw());
-    }
-    // The title's plate starts PAD up and left of it, as the layer does.
-    chrome.place(d.title, el.offsetLeft, 0);
-    chrome.place(d.wave, wrap.offsetLeft + c.offsetLeft + PAD, waveTop - top);
-    d.placed = true;
-    return true;
-  }
-
-  /// A shape arrived from the baker: draw again.
-  private redraw(): void {
-    this.chromeDirty = true;
-    this.start();
-  }
-
-  /// Light the logo once, whenever its size changed.
-  private shineLogo(chrome: Chrome): void {
-    const logo = this.logo;
-    if (!logo || logo.measured) return;
-    const el = logo.el;
-    const key = `${el.clientWidth}x${el.clientHeight}`;
-    if (!el.clientWidth) return;
-    logo.measured = true;
-    if (key === logo.key) return;
-    logo.key = key;
-    chrome.shape(logo.plate, el.clientWidth + 2 * LOGO_PAD, el.clientHeight + 2 * LOGO_PAD, 1, 0, 1.5, (ctx) => textMask(el, LOGO_PAD, ctx)).then((ok) => {
-      if (!ok || this.logo !== logo) return;
-      chrome.still(logo.plate, logo.canvas, { tint: LOGO_TINT, tilt: REST_TILT, kick: 0, sweep: -1 });
-      el.classList.add("chromed");
-    });
-  }
-
-  /// Light the chrome where something on it changed. Returns whether it wants
-  /// more frames.
-  private shine(now: number, dt: number, kick: number): boolean {
-    const chrome = this.chrome;
-    if (!chrome || chrome.lost) return false;
-    const d = this.dressed;
-    // Where the drop had to step down to its lowest quality, the GPU is slow:
-    // chrome then holds still and is drawn only when what it shows changes.
-    const frozen = !!this.blob?.struggling;
-    const calm = frozen || this.reduced.matches;
-    const k = 1 - Math.exp(-dt * AIM);
-    this.tilt[0] += (this.aim[0] - this.tilt[0]) * k;
-    this.tilt[1] += (this.aim[1] - this.tilt[1]) * k;
-    const moving = !frozen && Math.abs(this.aim[0] - this.tilt[0]) + Math.abs(this.aim[1] - this.tilt[1]) > 0.003;
-    if (calm) kick = 0;
-    const kicking = Math.abs(kick - this.kickDrawn) > KICK_STEP;
-    const t = d && !calm ? (now - d.sweepFrom) / 1000 / SWEEP : 2;
-    const sweeping = t <= 1;
-    const want = this.chromeDirty || moving || kicking || sweeping;
-    if (!want || now - this.chromeAt < 1000 / (this.touch ? TOUCH_CHROME_FPS : CHROME_FPS)) return want;
-    this.chromeAt = now;
-    this.chromeDirty = false;
-    this.stats.chrome++;
-    this.kickDrawn = kick;
-    this.shineLogo(chrome);
-    if (!d || !this.reshape(chrome, d)) return want;
-    const light: Light = { tint: d.tint, tilt: this.tilt, kick, sweep: sweeping ? -0.3 + 1.6 * t : -1 };
-    chrome.clear();
-    chrome.render(d.title, light);
-    // The playhead sits in the gap after the last bar played.
-    const gap = (CHROME_BAR * 0.3) / 2;
-    const at = (bars: number) => (bars > 0 ? (bars * CHROME_BAR - gap) / d.waveW : 0);
-    chrome.render(d.wave, { ...light, sweep: -1 }, { progress: at(d.played), buffered: at(d.loaded) });
-    return want;
-  }
-
   /// Follow `card` from now on.
   attach(card: Card | null, again = false): void {
     if (this.card === card && !again) return;
@@ -415,7 +101,6 @@ export class Visualizer {
       this.grab = null;
     }
     this.card = card;
-    this.dress(card);
     const blob = this.liquid();
     const slot = card?.el?.querySelector<HTMLElement>(".art");
     if (!card || !slot || !blob) {
@@ -509,10 +194,6 @@ export class Visualizer {
   }
 
   private move(e: PointerEvent): void {
-    if (e.pointerType === "mouse" && this.chrome) {
-      this.aim = [(e.clientX / innerWidth) * 2 - 1, (e.clientY / innerHeight) * 2 - 1];
-      this.start();
-    }
     this.pointer(e, true);
     const g = this.grab;
     const at = this.where();
@@ -583,14 +264,14 @@ export class Visualizer {
     if (this.dropDebug && now - st.from >= 1000) {
       const secs = (now - st.from) / 1000;
       this.dropDebug([
-        `fps ${(st.frames / secs).toFixed(0)} · worst ${(st.worst * 1000).toFixed(0)} ms · chrome ${(st.chrome / secs).toFixed(0)}/s`,
+        `fps ${(st.frames / secs).toFixed(0)} · worst ${(st.worst * 1000).toFixed(0)} ms`,
         `setting ${this.setting} · reduced motion ${this.reduced.matches} · touch ${this.touch} · mixing ${mixed}`,
         `blob ${this.blob === undefined ? "not asked" : this.blob === null ? `failed: ${LiquidBlob.failure}` : "made"} · card liquid ${!!card.el?.classList.contains("liquid")}`,
         this.blob?.describe() ?? "",
       ].join("\n"));
     }
-    if (now - st.from >= 1000) this.stats = { from: now, frames: 0, worst: 0, chrome: 0 };
-    let busy = this.shine(now, dt, f.kick) || playing;
+    if (now - st.from >= 1000) this.stats = { from: now, frames: 0, worst: 0 };
+    let busy = playing;
     const liquid = !!this.blob && !!card.el?.classList.contains("liquid");
     if (!this.reduced.matches) {
       // The kick drives the pulse; without an analyser the kicks come from the waveform.
@@ -612,15 +293,6 @@ export class Visualizer {
       }, 1000 / IDLE_FPS);
     }
   };
-}
-
-/// A canvas laid over `el` for its chrome.
-function plateCanvas(el: HTMLElement): HTMLCanvasElement {
-  const c = document.createElement("canvas");
-  c.className = "chrome-plate";
-  c.setAttribute("aria-hidden", "true");
-  el.append(c);
-  return c;
 }
 
 /// How far the audio is loaded from where it plays now, in seconds.

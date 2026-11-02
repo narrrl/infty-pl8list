@@ -193,11 +193,6 @@ export class Card {
     if (this.dragging && !force) return;
     this.lastProgress = progress;
     this.lastBuffered = buffered;
-    if (this.onWave) {
-      this.onWave(progress, buffered);
-      this.drawn = ""; // drawn here again once chrome lets go
-      return;
-    }
     const canvas = this.canvas;
     if (!canvas) return;
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -221,7 +216,7 @@ export class Card {
     const accent = getComputedStyle(canvas).getPropertyValue("--card-accent").trim() || "#ff4d6d";
     const base = Math.round(h * (1 - MIRROR)) - 1;
     const below = h - base - 2;
-    const level = (i: number) => this.level(i, bars, data, max);
+    const level = (i: number) => (data.length ? data[Math.floor((i / bars) * data.length)] / max : 0.15);
     const grad = ctx.createLinearGradient(0, base, 0, 0);
     grad.addColorStop(0, accent);
     grad.addColorStop(0.65, accent);
@@ -248,36 +243,6 @@ export class Card {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-  }
-
-  /// Set while the waveform is chrome (chrome.ts via visual.ts), which then draws it.
-  onWave: ((progress: number, buffered: number) => void) | null = null;
-
-  get waveCanvas(): HTMLCanvasElement | null {
-    return this.canvas;
-  }
-
-  private level(i: number, bars: number, data: number[], max: number): number {
-    return data.length ? data[Math.floor((i / bars) * data.length)] / max : 0.15;
-  }
-
-  /// The bars alone, as a mask for chrome, in CSS px of a `w` x `h` canvas, `bar`
-  /// px apart. Returns the line they stand on and, per bar, where its top is.
-  waveMask(ctx: CanvasRenderingContext2D, w: number, h: number, bar: number): { base: number; tops: number[]; width: number } {
-    const data = this.track.waveform || [];
-    const max = Math.max(1, ...data);
-    const bars = Math.max(1, Math.floor(w / bar));
-    const width = bar * 0.7;
-    const base = Math.round(h * (1 - MIRROR)) - 1;
-    const tops: number[] = [];
-    for (let i = 0; i < bars; i++) {
-      const top = Math.max(width, this.level(i, bars, data, max) * (base - 2));
-      tops.push(base - top);
-      ctx.beginPath();
-      ctx.roundRect(i * bar, base - top, width, top, width / 2);
-      ctx.fill();
-    }
-    return { base, tops, width };
   }
 
   /// Loudness at `progress` from the waveform, 0..1. Stands in for the analyser
