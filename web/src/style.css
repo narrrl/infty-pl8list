@@ -230,7 +230,7 @@ body.zen #bar { display: none; }
   color: var(--muted);
 }
 #sleep-left { text-transform: none; letter-spacing: 0; color: var(--accent); }
-#flares-setting legend small { text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; }
+#spikes-setting legend small { text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; }
 .sheet-actions { display: flex; align-items: center; gap: 1rem; }
 .sheet-tools { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .sheet-tools input[type=search] {

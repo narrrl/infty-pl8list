@@ -9,7 +9,7 @@ import { Pager } from "./pager";
 import { Player } from "./player";
 import { Sheet } from "./sheet";
 import { Station } from "./station";
-import type { FlareSetting } from "./blob/blob";
+import type { SpikeSetting } from "./blob/blob";
 import { type VisualsSetting, Visualizer } from "./visual";
 
 const PREFETCH_AHEAD = 4; // fetch more when this close to the end
@@ -845,13 +845,13 @@ function showSetting(name: string, value: string): void {
 function setVisuals(v: VisualsSetting): void {
   visual.visuals = v;
   showSetting("visuals", v);
-  $("flares-setting").hidden = v !== "liquid";
+  $("spikes-setting").hidden = v !== "liquid";
 }
 
 filtersForm.addEventListener("change", (e) => {
   const input = e.target as HTMLInputElement;
   if (input.name === "visuals") setVisuals(input.value as VisualsSetting);
-  else if (input.name === "flares") visual.flares = input.value as FlareSetting;
+  else if (input.name === "spikes") visual.spikes = input.value as SpikeSetting;
   else if (input.name === "crossfade") player.crossfade = Number(input.value);
   else if (input.name === "bass") player.bassBoost = input.checked;
   else if (input.name === "sleep") setSleep(input.value);
@@ -865,8 +865,8 @@ $("filters-clear").addEventListener("click", () => {
 
 function showSettings(): void {
   showSetting("visuals", visual.visuals);
-  showSetting("flares", visual.flares);
-  $("flares-setting").hidden = visual.visuals !== "liquid";
+  showSetting("spikes", visual.spikes);
+  $("spikes-setting").hidden = visual.visuals !== "liquid";
   // A saved crossfade that is not one of the choices shows as the nearest one.
   const fades = [...filtersForm.querySelectorAll<HTMLInputElement>("input[name=crossfade]")].map((i) => Number(i.value));
   const fade = fades.reduce((a, b) => (Math.abs(b - player.crossfade) < Math.abs(a - player.crossfade) ? b : a));

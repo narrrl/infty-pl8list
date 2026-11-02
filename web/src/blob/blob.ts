@@ -3,7 +3,8 @@
 // page; cards around it show their artwork as a plain image.
 
 import type { Features } from "../features";
-import { Flares } from "./flares";
+import { Caustics } from "./caustics";
+import { Ferro } from "./ferro";
 import { icosphere } from "./mesh";
 import { FRAGMENT, VERTEX } from "./shaders";
 import { Spin } from "./spin";
@@ -44,17 +45,18 @@ const SLOW_FOR = 2; // … and this many seconds of them step the quality down
 const FAST_FOR = 10; // s of frames on time before it tries one step up again
 /// Quality steps: icosphere subdivisions and resolution scale.
 const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
-/// Solar flare loops at most, per quality step.
-const FLARE_LOOPS = [8, 6, 5, 4];
+/// Quality steps that still draw the light behind the drop.
+const CAUSTICS_UP_TO = 1;
+const CAUSTICS_IN = 0.6; // s for the light to come up as playing starts, and go
 
-/// Solar flares: "auto" shows them where the track's look asks for them (style.ts).
-export type FlareSetting = "auto" | "on" | "off";
+/// Ferrofluid spikes: "auto" shows them where the track's look asks for them (style.ts).
+export type SpikeSetting = "auto" | "on" | "off";
 const MAX_PIXELS = 2.6e6; // canvas pixels at full quality, about 1600 x 1600
 
 const UNIFORMS = [
   "uProj", "uDist", "uTime", "uMorph", "uLevel", "uWobble", "uKick", "uKickAge", "uSnare", "uDrop", "uBass", "uGrowl",
   "uGain", "uSpike", "uStep", "uTwist", "uRipple", "uShock", "uScale", "uLift", "uJelly", "uPointer", "uRot", "uFront",
-  "uIcon", "uIconA", "uCalm", "uBusy", "uProgress", "uClock",
+  "uIcon", "uIconA", "uCalm", "uBusy", "uProgress", "uClock", "uSpikes", "uSpikeOn",
   "uArt", "uAccent", "uHue", "uIri", "uMetal", "uHeat",
 ] as const;
 
@@ -82,9 +84,11 @@ export class LiquidBlob {
   readonly spin = new Spin();
   private gl: WebGL2RenderingContext;
   private prog!: WebGLProgram;
-  /// The loops round the drop; null if their shaders failed, which leaves the drop.
-  private flares: Flares | null = null;
-  flareSetting: FlareSetting = "auto";
+  private ferro = new Ferro();
+  spikeSetting: SpikeSetting = "auto";
+  /// The light behind the drop; null if its shaders failed, which leaves the drop.
+  private caustics: Caustics | null = null;
+  private light = 0;
   private proj = perspective(FOV, 1, 0.1, 20);
   private scaleNow: [number, number, number] = [1, 1, 1];
   private liftNow = 0;
@@ -191,10 +195,10 @@ export class LiquidBlob {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
     try {
-      this.flares = new Flares(gl, FLARE_LOOPS[this.quality]);
+      this.caustics = new Caustics(gl);
     } catch (err) {
-      this.flares = null;
-      console.warn("no solar flares:", (err as Error).message);
+      this.caustics = null;
+      console.warn("no caustics:", (err as Error).message);
     }
     gl.useProgram(prog);
   }
@@ -236,7 +240,8 @@ export class LiquidBlob {
     this.morph = 0;
     this.slow = this.fast = 0;
     this.spin.reset();
-    this.flares?.reset();
+    this.ferro.reset();
+    this.light = 0;
     this.iconFor = null;
     const source = await artwork(art, initial, tint).catch(() => artwork(null, initial, tint));
     if (gen !== this.gen || this.gl.isContextLost()) return false;
@@ -326,23 +331,25 @@ export class LiquidBlob {
     gl.uniform4f(u.uPointer, ...this.spin.toObject(px, py, pz), pw);
     gl.uniform3f(u.uFront, ...this.spin.toObject(0, 0, 1));
     gl.uniformMatrix3fv(u.uRot, false, this.spin.matrix);
+    const strength = this.spikeSetting === "off" ? 0 : this.spikeSetting === "on" ? Math.max(1, look.ferro) : look.ferro;
+    // Not while the drop is still flat artwork, nor under the icon.
+    const spiking = this.ferro.frame(f, dt, look, playing && morph > 0.9, strength * (1 - this.calm), (x, y, z) => this.spin.toObject(x, y, z));
+    gl.uniform4fv(u.uSpikes, this.ferro.data);
+    gl.uniform1f(u.uSpikeOn, this.ferro.tallest);
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    // The light behind it first, while it plays.
+    const lit = playing && this.quality <= CAUSTICS_UP_TO ? 1 : 0;
+    this.light += (lit - this.light) * ease(dt, CAUSTICS_IN);
+    if (this.caustics && this.light > 0.003) {
+      this.caustics.draw(f, look, { spill: SPILL, scale: this.scaleNow, lift: this.liftNow, time: this.time, accent: this.accent, amount: this.light * morph });
+      gl.useProgram(this.prog);
+    }
+    gl.enable(gl.DEPTH_TEST);
     gl.bindVertexArray(this.vao);
     gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0);
-    const strength = this.flareSetting === "off" ? 0 : this.flareSetting === "on" ? Math.max(1, look.flares) : look.flares;
-    // Not while the drop is still flat artwork, nor over the icon.
-    const flaring = !!this.flares && this.flares.frame(f, dt, look, playing && morph > 0.9, strength * (1 - this.calm), f.period, {
-      proj: this.proj,
-      dist: DIST,
-      rot: this.spin.matrix,
-      scale: this.scaleNow,
-      lift: this.liftNow,
-      accent: this.accent,
-      time: this.time,
-      toObject: (x, y, z) => this.spin.toObject(x, y, z),
-    });
-    return this.morph < 1 || moving || spinning || showing || flaring || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
+    const fading = Math.abs(lit - this.light) > 0.003;
+    return this.morph < 1 || moving || spinning || showing || spiking || fading || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
   }
 
   /// Canvas pixels per CSS pixel at full quality. Phones stay at 1.5 at most, for
@@ -446,7 +453,7 @@ export class LiquidBlob {
       `vertex highp ${hp ? hp.precision : "?"} bits`,
       `ready ${this.ready} · lost ${gl.isContextLost()} · error ${gl.getError()}`,
       `morph ${this.morph.toFixed(2)} · quality ${this.quality} · canvas ${this.canvas.width}x${this.canvas.height}`,
-      `flares ${this.flares ? this.flareSetting : "failed"} · look ${this.look?.flares ?? "-"}`,
+      `spikes ${this.spikeSetting} · look ${this.look?.ferro ?? "-"} · caustics ${this.caustics ? this.light.toFixed(2) : "failed"}`,
       `in page ${this.canvas.isConnected} · css ${this.canvas.clientWidth}x${this.canvas.clientHeight}`,
     ].join("\n");
   }
@@ -476,7 +483,6 @@ export class LiquidBlob {
     const before = QUALITY[this.quality][0];
     this.quality = q;
     if (QUALITY[q][0] !== before) this.buildMesh();
-    this.flares?.setMax(FLARE_LOOPS[q]);
   }
 }
 

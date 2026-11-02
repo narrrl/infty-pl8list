@@ -6,7 +6,7 @@
 // Web Audio, otherwise from the track's waveform at the current position.
 
 import { artistImg } from "./api";
-import { type FlareSetting, LiquidBlob, SPILL } from "./blob/blob";
+import { LiquidBlob, SPILL, type SpikeSetting } from "./blob/blob";
 import { lookFor } from "./blob/style";
 import type { Card } from "./cards";
 import { accentFor, accentForName } from "./color";
@@ -15,7 +15,7 @@ import type { Player } from "./player";
 
 export type VisualsSetting = "liquid" | "simple";
 const VISUALS_KEY = "pl8inf.visuals";
-const FLARES_KEY = "pl8inf.flares";
+const SPIKES_KEY = "pl8inf.spikes";
 const SLOP = 10; // px before a press on the drop turns it
 const REACH = 1.2; // how far past the art's radius the drop can be grabbed
 const IDLE_FPS = 15; // a paused drop keeps breathing, slowly and at a low frame rate
@@ -30,7 +30,7 @@ export class Visualizer {
   private blob: LiquidBlob | null | undefined;
   private reduced = matchMedia("(prefers-reduced-motion: reduce)");
   private setting: VisualsSetting = localStorage.getItem(VISUALS_KEY) === "simple" ? "simple" : "liquid";
-  private flareSetting: FlareSetting = (["on", "off"] as const).find((v) => v === localStorage.getItem(FLARES_KEY)) ?? "auto";
+  private spikeSetting: SpikeSetting = (["on", "off"] as const).find((v) => v === localStorage.getItem(SPIKES_KEY)) ?? "auto";
   private debug: ((f: Features) => void) | null = null;
   private dropDebug: ((text: string) => void) | null = null;
   /// A press on the drop; `on` once it moved enough to turn it.
@@ -76,15 +76,15 @@ export class Visualizer {
     this.attach(this.card, true);
   }
 
-  get flares(): FlareSetting {
-    return this.flareSetting;
+  get spikes(): SpikeSetting {
+    return this.spikeSetting;
   }
 
-  /// Solar flares round the drop: auto, on or off.
-  set flares(v: FlareSetting) {
-    this.flareSetting = v;
-    localStorage.setItem(FLARES_KEY, v);
-    if (this.blob) this.blob.flareSetting = v;
+  /// Ferrofluid spikes on the drop: auto, on or off.
+  set spikes(v: SpikeSetting) {
+    this.spikeSetting = v;
+    localStorage.setItem(SPIKES_KEY, v);
+    if (this.blob) this.blob.spikeSetting = v;
   }
 
   /// Whether the liquid drop runs: wanted, motion allowed, and WebGL2 works.
@@ -93,7 +93,7 @@ export class Visualizer {
     if (this.blob === undefined) {
       this.blob = LiquidBlob.create(this.touch);
       if (this.blob) {
-        this.blob.flareSetting = this.flareSetting;
+        this.blob.spikeSetting = this.spikeSetting;
         // Plain art while the GPU is gone; the drop comes back with it.
         this.blob.onLost = () => this.card?.el?.classList.remove("liquid");
         this.blob.onRestored = () => this.attach(this.card, true);

@@ -1,10 +1,12 @@
+import { SPIKES } from "./ferro";
+
 // GLSL for the liquid artwork drop. The vertex shader moves a unit sphere with
 // noise driven by the music and turns it as spin.ts says; the fragment shader shows
 // the artwork through the surface, glossy with the card's accent colour.
 
 // 3D simplex noise by Ian McEwan and Stefan Gustavson (Ashima Arts), MIT licence:
 // https://github.com/ashima/webgl-noise
-const NOISE = /* glsl */ `
+export const NOISE = /* glsl */ `
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 permute(vec4 x) { return mod289(((x * 34.0) + 10.0) * x); }
@@ -125,10 +127,14 @@ uniform vec4 uPointer;  // direction on the sphere, strength
 uniform mat3 uRot;      // turned by hand, object to view space
 uniform vec3 uFront;    // towards the viewer, in object space
 uniform float uCalm;    // calms the surface while the icon or the loading ring shows
+// Ferrofluid spikes (ferro.ts): direction in the drop's own space, height in radii.
+uniform vec4 uSpikes[${SPIKES}];
+uniform float uSpikeOn; // the tallest spike; 0 skips them all
 
 out vec3 vPos;     // view space
 out vec3 vNormal;  // view space
 out vec3 vObj;     // the resting sphere; its front projection carries the artwork
+out float vSpike;  // how far out on a spike, 0..1
 
 ${NOISE}
 
@@ -162,8 +168,37 @@ float disp(vec3 p) {
   float wave = exp(-ahead * ahead) * exp(-uKickAge * 2.8) * 0.09 * uShock;
   float near = distance(p, uPointer.xyz) * 2.2;
   float dent = -0.18 * uPointer.w * exp(-near * near);
+  // Where ferrofluid spikes stand, they take over from the noise's own points, so
+  // the cones read clean.
+  float ferroOn = smoothstep(0.0, 0.15, uSpikeOn);
+  spikes *= 1.0 - 0.8 * ferroOn;
+  thorns *= 1.0 - 0.8 * ferroOn;
   // Calmer while the icon shows, so it stays readable.
   return clamp((lobes + sway + ripples + spikes + thorns + wave) * uGain + dent, -0.3, 0.5) * (1.0 - 0.6 * uCalm);
+}
+
+// The spikes: cones with hollow flanks and a sharp tip, as ferrofluid stands over a
+// magnet. Wider at the base the taller they grow. Stepped tracks get sharper ones.
+// Returns the height and, in yz, its slope along t1 and t2: worked out here rather
+// than by sampling the neighbours, which would run the loop three times.
+// The test is on uniforms only, so every vertex takes the same branch.
+vec3 ferro(vec3 p, vec3 t1, vec3 t2) {
+  if (uSpikeOn < 0.002) return vec3(0.0);
+  float sharp = 2.0 + 1.5 * uStep;
+  vec3 h = vec3(0.0);
+  for (int i = 0; i < ${SPIKES}; i++) {
+    vec4 s = uSpikes[i];
+    float w = 0.1 + 0.55 * s.w;
+    vec3 d = p - s.xyz;
+    float len = length(d);
+    float c = len / w;
+    if (c < 1.0) {
+      float k = pow(1.0 - c, sharp - 1.0);
+      vec3 grad = -sharp * s.w * k * d / (max(len, 1e-4) * w);
+      h += vec3(s.w * k * (1.0 - c), dot(grad, t1), dot(grad, t2));
+    }
+  }
+  return h * (1.0 - 0.8 * uCalm);
 }
 
 void main() {
@@ -173,9 +208,12 @@ void main() {
   vec3 t1 = normalize(cross(p, abs(p.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
   vec3 t2 = cross(p, t1);
   const float e = 0.012;
-  float h = disp(p) * uMorph;
-  float g1 = (disp(p + t1 * e) * uMorph - h) / e;
-  float g2 = (disp(p + t2 * e) * uMorph - h) / e;
+  vec3 fe = ferro(p, t1, t2) * uMorph;
+  float h0 = disp(p) * uMorph;
+  float g1 = (disp(p + t1 * e) * uMorph - h0) / e + fe.y;
+  float g2 = (disp(p + t2 * e) * uMorph - h0) / e + fe.z;
+  float h = h0 + fe.x;
+  vSpike = clamp(fe.x / 0.2, 0.0, 1.0);
   vec3 n = p * (1.0 + h) - g1 * t1 - g2 * t2;
   // Flattened into the static artwork while it morphs in; the normal scales the other way.
   float depth = mix(0.04, 1.0, uMorph);
@@ -195,6 +233,7 @@ precision highp float;
 in vec3 vPos;
 in vec3 vNormal;
 in vec3 vObj;
+in float vSpike;
 
 uniform sampler2D uArt;
 uniform vec3 uAccent;
@@ -248,16 +287,18 @@ void main() {
   // A thin, hot edge that flares on hits.
   float edge = fres * fres;
 
-  vec3 col = art * mix(1.0, 0.45, fres * uMorph);
+  // Out on a spike the liquid turns to ink, like ferrofluid: the artwork darkens and
+  // the gloss takes over.
+  vec3 col = art * mix(1.0, 0.45, fres * uMorph) * (1.0 - 0.6 * vSpike);
   col += rim * fresC * (0.65 + 0.9 * uKick + 0.5 * uDrop + 0.5 * uBass) * uMorph;
   col += mix(rim, vec3(1.0), 0.5) * edge * (0.3 + 1.2 * uKick + 0.8 * uDrop) * uMorph;
-  col += spec * uMorph;
+  col += spec * (1.0 + 0.8 * vSpike) * uMorph;
   // Gloss: a dark room lit by the accent from above, and one soft window. They stay
   // put while the surface turns under them, which is what makes a spin read.
   vec3 r = reflect(-v, n);
   vec3 env = mix(vec3(0.015), uAccent * 0.5, pow(smoothstep(-0.4, 1.0, r.y), 2.0));
   env += 0.5 * smoothstep(0.92, 0.985, dot(r, normalize(vec3(-0.5, 0.7, 0.5))));
-  col += env * (0.1 + 0.5 * fres) * uMorph;
+  col += env * (0.1 + 0.5 * fres + 0.5 * vSpike) * uMorph;
   // The icon sits on a disc of frosted glass, painted onto the surface so it turns
   // with the drop: the artwork behind it blurred and dimmed, lit along its rim. A
   // ring round it shows how much has played, or runs while the track loads.
