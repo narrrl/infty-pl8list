@@ -45,7 +45,7 @@ const FAST_FOR = 10; // s of frames on time before it tries one step up again
 /// Quality steps: icosphere subdivisions and resolution scale.
 const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
 /// Solar flare loops at most, per quality step.
-const FLARE_LOOPS = [10, 8, 6, 4];
+const FLARE_LOOPS = [8, 6, 5, 4];
 
 /// Solar flares: "auto" shows them where the track's look asks for them (style.ts).
 export type FlareSetting = "auto" | "on" | "off";
@@ -339,6 +339,7 @@ export class LiquidBlob {
       scale: this.scaleNow,
       lift: this.liftNow,
       accent: this.accent,
+      time: this.time,
       toObject: (x, y, z) => this.spin.toObject(x, y, z),
     });
     return this.morph < 1 || moving || spinning || showing || flaring || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;

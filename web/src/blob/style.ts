@@ -41,33 +41,31 @@ export interface Look {
   arch: number;
   /// Beats a loop lives.
   life: number;
-  /// Snares weaker than this break no loop.
+  /// Snares weaker than this pinch no loop.
   erupt: number;
-  /// How far the loops' colour leans from the sun's towards the card's accent.
-  tint: number;
 }
 
 const BASE: Look = {
   flow: 1, gain: 1, spike: 0.5, step: 0, throb: 1, bounce: 1, stiff: 90, twist: 0.15, ripple: 1, shock: 1, iri: 0.1, metal: 0.3, heat: 0, hue: 0,
-  flares: 0, crown: 6, scatter: 0.4, arch: 0.5, life: 4, erupt: 0.45, tint: 0.15,
+  flares: 0, crown: 6, scatter: 0.4, arch: 0.32, life: 4, erupt: 0.45,
 };
 
 const TAGS: Record<string, (l: Look) => void> = {
   // Riddim: the loops snap to the beat and the crown repeats every bar.
   riddim: (l) => Object.assign(l, {
     step: 0.5, spike: 0.6, throb: 1.4, bounce: 1.3, stiff: 120, metal: 0.9, shock: 1.4, ripple: 1.2,
-    flares: 1, crown: 4, scatter: 0, arch: 0.55, life: 4, erupt: 0.4,
+    flares: 1, crown: 4, scatter: 0, arch: 0.36, life: 4, erupt: 0.4,
   }),
   tearout: (l) => Object.assign(l, { spike: 1.3, bounce: 1.4, gain: l.gain * 1.15, heat: 0.7, flares: 1, crown: 6, scatter: 0.5, erupt: 0.25 }),
   deathstep: (l) => Object.assign(l, { spike: 1.4, bounce: 1.4, gain: l.gain * 1.15, heat: 0.9, metal: 0.7, flares: 1, crown: 6, scatter: 0.6, erupt: 0.2 }),
   melodic: (l) => Object.assign(l, {
     iri: 0.8, spike: 0.15, throb: 0.7, bounce: 0.6, stiff: 55, gain: l.gain * 0.9, flow: l.flow * 0.8, metal: 0.1,
-    flares: 0, crown: 5, scatter: 0.3, arch: 0.8, life: 8, erupt: 0.8, tint: 0.5,
+    flares: 0, crown: 5, scatter: 0.3, arch: 0.45, life: 8, erupt: 0.8,
   }),
-  colourbass: (l) => Object.assign(l, { iri: 1, spike: 0.25, bounce: 0.8, stiff: 70, metal: 0.15, tint: 0.6 }),
+  colourbass: (l) => Object.assign(l, { iri: 1, spike: 0.25, bounce: 0.8, stiff: 70, metal: 0.15 }),
   dnb: (l) => Object.assign(l, { ripple: 1.6 }),
   "170": (l) => Object.assign(l, { ripple: 1.5 }),
-  halftime: (l) => Object.assign(l, { flow: l.flow * 0.7, gain: l.gain * 1.15, stiff: 70, crown: 2, arch: 0.7 }),
+  halftime: (l) => Object.assign(l, { flow: l.flow * 0.7, gain: l.gain * 1.15, stiff: 70, crown: 2, arch: 0.45 }),
   wonk: (l) => Object.assign(l, { twist: 0.9 }),
 };
 
