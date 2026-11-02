@@ -752,12 +752,13 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   overflow: hidden;
   overflow-wrap: anywhere;
 }
+/* No filter and no transform while it is read: either turns the text into a
+   scaled bitmap that stays soft. */
 @keyframes wc-rise {
-  0% { opacity: 0; transform: translateY(14px) scale(0.3); filter: blur(4px); }
-  12% { opacity: 1; transform: translateY(-3px) scale(1.06); filter: blur(0); }
-  20% { transform: translateY(0) scale(1); }
-  82% { opacity: 1; transform: translateY(-4px); }
-  100% { opacity: 0; transform: translateY(-18px) scale(0.96); filter: blur(3px); }
+  0% { opacity: 0; transform: translateY(14px) scale(0.3); }
+  12% { opacity: 1; transform: translateY(-3px) scale(1.06); }
+  20%, 85% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-16px); }
 }
 @keyframes wc-spark {
   0% { transform: scaleY(0); opacity: 1; }
