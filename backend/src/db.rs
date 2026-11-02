@@ -5,13 +5,16 @@
 
 use std::{
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use base64::Engine;
 use rand::Rng;
-use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, params_from_iter};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -134,8 +137,17 @@ pub fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64()
 }
 
+/// Read-only connections next to the one that writes. With WAL they read while it
+/// writes, so a slow feed query does not hold up every other request.
+const READERS: usize = 4;
+
+/// One connection that writes, and a few that only read.
 #[derive(Clone)]
-pub struct Db(Arc<Mutex<Connection>>);
+pub struct Db {
+    writer: Arc<Mutex<Connection>>,
+    readers: Arc<Vec<Mutex<Connection>>>,
+    next: Arc<AtomicUsize>,
+}
 
 impl Db {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
@@ -148,19 +160,44 @@ impl Db {
         if tagged > 0 {
             tracing::info!("tagged {tagged} tracks");
         }
-        Ok(Db(Arc::new(Mutex::new(conn))))
+        let mut readers = Vec::with_capacity(READERS);
+        for _ in 0..READERS {
+            let r = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+            r.busy_timeout(std::time::Duration::from_secs(5))?;
+            readers.push(Mutex::new(r));
+        }
+        Ok(Db { writer: Arc::new(Mutex::new(conn)), readers: Arc::new(readers), next: Arc::new(AtomicUsize::new(0)) })
     }
 
-    /// Run `f` on the connection off the async runtime.
+    /// Run `f` on the writing connection off the async runtime.
     pub async fn call<T, F>(&self, f: F) -> anyhow::Result<T>
     where
         T: Send + 'static,
         F: FnOnce(&mut Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        let db = self.0.clone();
+        let db = self.writer.clone();
         let out = tokio::task::spawn_blocking(move || {
             let mut conn = db.lock().unwrap_or_else(|e| e.into_inner());
             f(&mut conn)
+        })
+        .await??;
+        Ok(out)
+    }
+
+    /// Run a read-only `f` on one of the reading connections: a free one if there
+    /// is one, else the next in turn.
+    pub async fn read<T, F>(&self, f: F) -> anyhow::Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let readers = self.readers.clone();
+        let start = self.next.fetch_add(1, Ordering::Relaxed);
+        let out = tokio::task::spawn_blocking(move || {
+            let n = readers.len();
+            let free = (0..n).find_map(|i| readers[(start + i) % n].try_lock().ok());
+            let conn = free.unwrap_or_else(|| readers[start % n].lock().unwrap_or_else(|e| e.into_inner()));
+            f(&conn)
         })
         .await??;
         Ok(out)
@@ -296,6 +333,14 @@ pub fn artist(conn: &Connection, handle: &str) -> rusqlite::Result<Option<Artist
         Ok(Artist { handle: r.get(0)?, name: r.get(1)?, img: r.get(2)?, verified: r.get(3)?, tracks: r.get(4)? })
     })
     .optional()
+}
+
+/// Whether the catalogue knows this artist, from a track or a listing.
+pub fn artist_known(conn: &Connection, handle: &str) -> rusqlite::Result<bool> {
+    conn.prepare_cached(
+        "SELECT 1 WHERE EXISTS (SELECT 1 FROM tracks WHERE handle=?1) OR EXISTS (SELECT 1 FROM artists WHERE handle=?1)",
+    )?
+    .exists([handle])
 }
 
 /// An artist's most common style tags; tempo tags left out.
@@ -564,6 +609,25 @@ pub fn create_guest(conn: &Connection) -> rusqlite::Result<(User, String)> {
     Ok((user, token))
 }
 
+/// What a guest would add to a pl8list library: their liked tracks (`[handle, slug]`,
+/// newest first, not unliked since) and followed artists (`[handle]`), at most `max`.
+pub fn guest_library(conn: &Connection, guest_id: i64, max: usize) -> rusqlite::Result<Vec<Vec<String>>> {
+    let liked: Vec<Vec<String>> = conn
+        .prepare(
+            "SELECT t.handle, t.slug FROM events e JOIN tracks t ON t.id = e.track_id \
+             WHERE e.user_id=?1 AND e.kind='like' AND NOT EXISTS (SELECT 1 FROM events u \
+               WHERE u.user_id=?1 AND u.track_id=e.track_id AND u.kind='unlike' AND u.ts >= e.ts) \
+             GROUP BY e.track_id ORDER BY MAX(e.ts) DESC",
+        )?
+        .query_map([guest_id], |r| Ok(vec![r.get(0)?, r.get(1)?]))?
+        .collect::<rusqlite::Result<_>>()?;
+    let followed: Vec<Vec<String>> = conn
+        .prepare("SELECT handle FROM follows WHERE user_id=? ORDER BY ts DESC")?
+        .query_map([guest_id], |r| Ok(vec![r.get(0)?]))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(followed.into_iter().chain(liked).take(max).collect())
+}
+
 /// A guest signed in with pl8list: what they played, liked and followed moves to
 /// the account, and the guest is gone.
 pub fn merge_guest(conn: &mut Connection, guest_id: i64, user_id: i64) -> rusqlite::Result<()> {
@@ -601,6 +665,7 @@ pub fn create_session(conn: &Connection, user_id: i64) -> rusqlite::Result<Strin
     Ok(token)
 }
 
+#[derive(Clone)]
 pub struct SessionHit {
     pub user: User,
     pub created_at: f64,
@@ -609,9 +674,10 @@ pub struct SessionHit {
     pub synced_at: Option<f64>,
 }
 
+/// The session behind a token, read-only. `touch_session` then records the use.
 pub fn session_user(conn: &Connection, token: &str) -> rusqlite::Result<Option<SessionHit>> {
     let now = now();
-    let hit = conn
+    conn
         .query_row(
             "SELECT u.*, s.created_at AS s_created, s.expires_at AS s_expires, s.pl8_link, s.pl8_synced_at \
              FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash=? AND s.expires_at > ?",
@@ -626,31 +692,46 @@ pub fn session_user(conn: &Connection, token: &str) -> rusqlite::Result<Option<S
                 })
             },
         )
-        .optional()?;
-    if let Some(h) = &hit {
-        if h.user.last_seen.unwrap_or(0.0) < now - 60.0 {
-            conn.execute("UPDATE users SET last_seen=? WHERE id=?", params![now, h.user.id])?;
-        }
-        // Sliding expiry, written at most once a day.
-        if h.expires_at < now + (SESSION_IDLE_DAYS - 1.0) * 86400.0 {
-            conn.execute(
-                "UPDATE sessions SET expires_at=? WHERE token_hash=? AND expires_at > ?",
-                params![now + SESSION_IDLE_DAYS * 86400.0, hash_token(token), now + 120.0],
-            )?;
-        }
+        .optional()
+}
+
+impl SessionHit {
+    /// Whether `touch_session` has anything to write: last seen at most once a
+    /// minute, the sliding expiry at most once a day.
+    pub fn stale(&self) -> bool {
+        let now = now();
+        self.user.last_seen.unwrap_or(0.0) < now - 60.0 || self.expires_at < now + (SESSION_IDLE_DAYS - 1.0) * 86400.0
     }
-    Ok(hit)
+}
+
+pub fn touch_session(conn: &Connection, token: &str, hit: &SessionHit) -> rusqlite::Result<()> {
+    let now = now();
+    if hit.user.last_seen.unwrap_or(0.0) < now - 60.0 {
+        conn.execute("UPDATE users SET last_seen=? WHERE id=?", params![now, hit.user.id])?;
+    }
+    if hit.expires_at < now + (SESSION_IDLE_DAYS - 1.0) * 86400.0 {
+        // Not a session that was just rotated away: that one stays short.
+        conn.execute(
+            "UPDATE sessions SET expires_at=? WHERE token_hash=? AND expires_at > ?",
+            params![now + SESSION_IDLE_DAYS * 86400.0, hash_token(token), now + 120.0],
+        )?;
+    }
+    Ok(())
 }
 
 /// Replace a session with a new token. The old one keeps working for a minute so
-/// requests already in flight do not fail.
-pub fn rotate_session(conn: &Connection, old_token: &str, user_id: i64) -> rusqlite::Result<String> {
-    let token = create_session(conn, user_id)?;
-    conn.execute(
-        "UPDATE sessions SET expires_at=MIN(expires_at, ?) WHERE token_hash=?",
-        params![now() + 60.0, hash_token(old_token)],
+/// requests already in flight do not fail. Returns `None` when another request
+/// rotated it already: then that request's response carries the new token.
+pub fn rotate_session(conn: &Connection, old_token: &str, user_id: i64) -> rusqlite::Result<Option<String>> {
+    let now = now();
+    let retired = conn.execute(
+        "UPDATE sessions SET expires_at=? WHERE token_hash=? AND user_id=? AND expires_at > ?",
+        params![now + 60.0, hash_token(old_token), user_id, now + 60.0],
     )?;
-    Ok(token)
+    if retired == 0 {
+        return Ok(None);
+    }
+    create_session(conn, user_id).map(Some)
 }
 
 /// Store (or replace) the encrypted pl8list session of one device.
@@ -856,8 +937,11 @@ mod tests {
         assert_eq!(stored, hash_token(&token));
         assert_eq!(session_user(&c, &token).unwrap().unwrap().user.id, 7);
 
-        let new = rotate_session(&c, &token, 7).unwrap();
+        let new = rotate_session(&c, &token, 7).unwrap().unwrap();
         assert!(session_user(&c, &new).unwrap().is_some());
+        // A second request with the old token, running alongside, does not rotate again.
+        assert_eq!(rotate_session(&c, &token, 7).unwrap(), None);
+        assert_eq!(c.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
         let old_expiry: f64 = c
             .query_row("SELECT expires_at FROM sessions WHERE token_hash=?", [hash_token(&token)], |r| r.get(0))
             .unwrap();

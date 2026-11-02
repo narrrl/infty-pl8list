@@ -49,7 +49,12 @@ pub struct Limits {
     /// Every start and resend makes pl8list send a mail; cap them for the whole server.
     pub login_global: RateLimiter,
     pub events: RateLimiter,
+    /// Feed, artist, track and likes: each runs queries over the catalogue.
+    pub reads: RateLimiter,
     pub proxy: RateLimiter,
+    /// The proxy per address too: guests are cheap to make, so a per-user limit
+    /// alone would not hold.
+    pub proxy_ip: RateLimiter,
     /// Saves to a user's pl8list library (likes and follows pushed from here).
     pub pl8_writes: RateLimiter,
     /// The resync button.
@@ -86,7 +91,9 @@ impl App {
                 login_email: RateLimiter::new(3, 900),
                 login_global: RateLimiter::new(30, 600),
                 events: RateLimiter::new(600, 600),
+                reads: RateLimiter::new(120, 60),
                 proxy: RateLimiter::new(1200, 60),
+                proxy_ip: RateLimiter::new(3000, 60),
                 pl8_writes: RateLimiter::new(60, 600),
                 resync: RateLimiter::new(1, 120),
                 guests: RateLimiter::new(10, 3600),
@@ -112,7 +119,9 @@ impl App {
         }
         self.logins.prune();
         self.segments.prune();
-        self.limits.guests.prune();
+        for l in [&self.limits.guests, &self.limits.reads, &self.limits.proxy, &self.limits.proxy_ip, &self.limits.events] {
+            l.prune();
+        }
     }
 
     /// This device's stored pl8list session, if it stays connected. A blob that no
@@ -190,7 +199,13 @@ async fn session(State(app): St, mut req: Request, next: Next) -> Response {
     let mut current = CurrentUser { user: None, token: token.clone(), link: None, synced_at: None };
     if let Some(t) = token {
         let lookup = t.clone();
-        if let Ok(Some(hit)) = app.db.call(move |c| db::session_user(c, &lookup)).await {
+        // Looked up on a reader; the writer only sees the rare request that has to
+        // record something.
+        if let Ok(Some(hit)) = app.db.read(move |c| db::session_user(c, &lookup)).await {
+            if hit.stale() {
+                let (tt, h) = (t.clone(), hit.clone());
+                let _ = app.db.call(move |c| db::touch_session(c, &tt, &h)).await;
+            }
             let mut new_token = None;
             current.link = hit.link.clone();
             current.synced_at = hit.synced_at;
@@ -201,7 +216,7 @@ async fn session(State(app): St, mut req: Request, next: Next) -> Response {
                 let key = &app.sync.key;
                 let synced = hit.synced_at;
                 new_token = match app.db.call(move |c| db::rotate_session(c, &old, uid)).await {
-                    Ok(nt) => {
+                    Ok(Some(nt)) => {
                         if let Some(session) = reopened {
                             let new = key.sealer(&nt, uid);
                             let blob = new.seal(&session);
@@ -220,7 +235,9 @@ async fn session(State(app): St, mut req: Request, next: Next) -> Response {
                         }
                         Some(nt)
                     }
-                    Err(_) => None,
+                    // Rotated by a request running alongside this one, or failed: the
+                    // old token works for another minute either way.
+                    Ok(None) | Err(_) => None,
                 };
             } else if legacy {
                 new_token = Some(t.clone());
@@ -311,14 +328,17 @@ async fn healthz() -> Response {
 
 pub fn router(app: Arc<App>) -> Router {
     let secure = app.cfg.secure;
-    Router::new()
+    // The page itself, its assets and the legal pages need no session: no database
+    // lookup for each of them.
+    let public = Router::new()
         .route("/", get(index))
         .route("/static/{*path}", get(static_route))
         .route("/sw.js", get(service_worker))
         .route("/healthz", get(healthz))
         .route("/impressum", get(legal::impressum))
         .route("/datenschutz", get(legal::datenschutz))
-        .route("/privacy", get(legal::datenschutz))
+        .route("/privacy", get(legal::datenschutz));
+    let api = Router::new()
         .route("/auth/start", post(auth::start))
         .route("/auth/resend", post(auth::resend))
         .route("/auth/verify", post(auth::verify))
@@ -339,7 +359,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/{handle}/{slug}/hls/playlist.m3u8", get(proxy::playlist))
         .route("/api/{handle}/{slug}/hls/segment/{n}", get(proxy::segment))
         .route("/img/{id}", get(proxy::image))
-        .layer(middleware::from_fn_with_state(app.clone(), session))
+        .layer(middleware::from_fn_with_state(app.clone(), session));
+    public
+        .merge(api)
         .layer(middleware::from_fn_with_state(app.clone(), origin_check))
         .layer(DefaultBodyLimit::max(4096))
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))

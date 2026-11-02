@@ -18,7 +18,7 @@ use axum::{
 use serde_json::{Value, json};
 
 use super::{App, CurrentUser, LOGIN_COOKIE, Peer, Res, SESSION_COOKIE, St, client_ip, json_error, no_store, security};
-use crate::{db, pl8::login::LoginFlow};
+use crate::{db, pl8::login::LoginFlow, sync};
 
 const LOGIN_TTL: Duration = Duration::from_secs(900);
 const MAX_PENDING: usize = 500;
@@ -164,17 +164,22 @@ pub async fn verify(State(app): St, Extension(current): Extension<CurrentUser>, 
     }
     // A guest signing in keeps what they played, liked and followed.
     let guest = current.user.as_ref().filter(|g| g.is_guest()).map(|g| g.id);
-    let token = app
+    let (token, guest_library) = app
         .db
         .call(move |c| {
             if let Some(t) = previous {
                 db::delete_session(c, &t)?;
             }
             db::upsert_user(c, u.id, &u.handle, u.name.as_deref(), u.img.as_deref())?;
+            // Staying connected, the guest's likes and follows go to pl8list too.
+            let mut library = vec![];
             if let Some(g) = guest {
+                if stay {
+                    library = db::guest_library(c, g, sync::MAX_GUEST_PUSH)?;
+                }
                 db::merge_guest(c, g, u.id)?;
             }
-            db::create_session(c, u.id)
+            Ok((db::create_session(c, u.id)?, library))
         })
         .await?;
     if stay {
@@ -182,7 +187,7 @@ pub async fn verify(State(app): St, Extension(current): Extension<CurrentUser>, 
         let blob = sealer.seal(&pl8_session);
         let hash = sealer.token_hash.clone();
         app.db.call(move |c| db::set_link(c, &hash, &blob, Some(db::now()))).await?;
-        app.sync.linked(sealer, pl8_session);
+        app.sync.linked_with(sealer, pl8_session, guest_library);
     } else {
         app.sync.once(user.id, pl8_session);
     }

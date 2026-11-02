@@ -52,6 +52,11 @@ const REFRESH_AFTER: f64 = 86400.0; // re-check an artist's newest page for uplo
 const RESEED_EVERY: Duration = Duration::from_secs(600);
 /// An artist radio crawls its artist's neighbourhood at most this often.
 const EXPLORE_EVERY: Duration = Duration::from_secs(600);
+/// Jobs waiting at most. Past this only seed and feedback jobs get in, so nothing
+/// from outside can grow the queue without end.
+const MAX_QUEUE: usize = 20_000;
+/// This many failed jobs in a row means pl8list is down or has changed its API.
+const FAILURES_ALARM: u32 = 25;
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum Job {
@@ -95,6 +100,9 @@ impl Crawler {
 
     fn push(&self, priority: i64, job: Job) {
         let mut q = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if q.heap.len() >= MAX_QUEUE && priority > P_SEED {
+            return;
+        }
         if !q.queued.insert(job.clone()) {
             return;
         }
@@ -153,7 +161,12 @@ impl Crawler {
 
     /// An artist radio was opened: crawl the artist, and the related pages of their
     /// best tracks that were not read yet, to fill in the artist graph around them.
+    /// Only artists already in the catalogue: a handle typed into a URL queues nothing.
     pub async fn explore_artist(&self, handle: String) {
+        let h = handle.clone();
+        if !self.db.read(move |c| db::artist_known(c, &h)).await.unwrap_or(false) {
+            return;
+        }
         {
             let mut explored = self.explored.lock().unwrap_or_else(|e| e.into_inner());
             let now = Instant::now();
@@ -187,10 +200,26 @@ impl Crawler {
     async fn run(&self) {
         self.seed();
         let mut last_seed = Instant::now();
+        let mut failures = 0u32;
         loop {
             let job = self.pop().await;
-            if let Err(e) = self.run_job(job.clone()).await {
-                tracing::warn!("crawl {job:?} failed: {e:#}");
+            match self.run_job(job.clone()).await {
+                Ok(()) => {
+                    if failures >= FAILURES_ALARM {
+                        tracing::info!("crawler: pl8list answers again after {failures} failed jobs");
+                    }
+                    failures = 0;
+                }
+                Err(e) => {
+                    tracing::warn!("crawl {job:?} failed: {e:#}");
+                    failures += 1;
+                    if failures == FAILURES_ALARM {
+                        tracing::error!(
+                            "crawler: {failures} jobs in a row failed. pl8list is down, or its routes changed \
+                             (a move from Remix `?_data=` to React Router `.data` would look like this)"
+                        );
+                    }
+                }
             }
             if !self.busy().await {
                 tokio::time::sleep(IDLE_DELAY).await;
@@ -308,10 +337,18 @@ impl Crawler {
         match job {
             Job::Home => {
                 let d = self.pl8.home().await?.unwrap_or(Value::Null);
+                let mut found = 0;
                 for section in ["bestSellers", "recommended"] {
-                    self.upsert(normalize::items(d.get(section).and_then(|s| s.get("items"))), None).await?;
+                    let rows = normalize::items(d.get(section).and_then(|s| s.get("items")));
+                    found += rows.len();
+                    self.upsert(rows, None).await?;
                 }
-                self.ticker_events(d.get("tickerEvents")).await
+                self.ticker_events(d.get("tickerEvents")).await?;
+                // The home page always lists tracks; none means its shape changed.
+                if found == 0 {
+                    anyhow::bail!("home page has no tracks in bestSellers or recommended; did pl8list change its data?");
+                }
+                Ok(())
             }
             Job::Ticker => {
                 let d = self.pl8.activity_ticker().await?.unwrap_or(Value::Null);

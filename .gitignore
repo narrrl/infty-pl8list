@@ -5,3 +5,5 @@ __pycache__/
 backend/target/
 web/node_modules/
 web/dist/
+backend/cache/
+cache/

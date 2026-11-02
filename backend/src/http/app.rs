@@ -52,13 +52,22 @@ async fn resync_if_due(app: &App, current: &CurrentUser) {
     }
 }
 
+/// The signed-in user, within the limit for catalogue reads.
+fn reader(app: &App, current: &CurrentUser) -> Result<db::User, Response> {
+    let user = current.require()?;
+    if !app.limits.reads.allow(&user.id.to_string()) {
+        return Err(json_error(StatusCode::TOO_MANY_REQUESTS, "slow down a little"));
+    }
+    Ok(user.clone())
+}
+
 fn num(q: &HashMap<String, String>, name: &str) -> Option<f64> {
     q.get(name).and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite())
 }
 
 pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Query(q): Query<HashMap<String, String>>) -> Res {
-    let user = match current.require() {
-        Ok(u) => u.clone(),
+    let user = match reader(&app, &current) {
+        Ok(u) => u,
         Err(r) => return Ok(r),
     };
     let artist = q.get("artist").map(String::as_str).filter(|h| valid_handle(h));
@@ -78,11 +87,18 @@ pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Qu
     resync_if_due(&app, &current).await;
     let deadline = Instant::now() + FEED_WAIT;
     let uid = user.id;
-    let mut tracks = loop {
+    let (mut tracks, liked) = loop {
         let mode = mode.clone();
-        let tracks = app.db.call(move |c| ranker::pick(c, uid, n, filters, &*mode.ranker(c)?)).await?;
+        let (tracks, liked) = app
+            .db
+            .read(move |c| {
+                let taste = ranker::taste(c, uid)?;
+                let tracks = ranker::pick_with(c, uid, n, filters, &*mode.ranker(c)?, &taste)?;
+                Ok((tracks, taste.liked_ids.len()))
+            })
+            .await?;
         if !tracks.is_empty() || Instant::now() >= deadline {
-            break tracks;
+            break (tracks, liked);
         }
         tokio::time::sleep(Duration::from_millis(1500)).await;
     };
@@ -95,7 +111,7 @@ pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Qu
                 db::add_event(c, uid, id, "served", None)?;
             }
             let mut s = db::stats(c, uid)?;
-            s.liked = ranker::taste(c, uid)?.liked_ids.len();
+            s.liked = liked;
             Ok(s)
         })
         .await?;
@@ -103,11 +119,11 @@ pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Qu
 }
 
 pub async fn likes(State(app): St, Extension(current): Extension<CurrentUser>) -> Res {
-    let uid = match current.require() {
+    let uid = match reader(&app, &current) {
         Ok(u) => u.id,
         Err(r) => return Ok(r),
     };
-    let mut tracks = app.db.call(move |c| ranker::likes(c, uid)).await?;
+    let mut tracks = app.db.read(move |c| ranker::likes(c, uid)).await?;
     mark_followed(&app, uid, &mut tracks).await?;
     Ok((no_store(), Json(json!({ "tracks": tracks }))).into_response())
 }
@@ -129,24 +145,27 @@ pub async fn event(State(app): St, Extension(current): Extension<CurrentUser>, J
     if !app.limits.events.allow(&uid.to_string()) {
         return Ok(StatusCode::TOO_MANY_REQUESTS.into_response());
     }
+    // Only tracks in the catalogue: anything else would be a row nothing reads.
+    let Some((handle, slug)) = app.db.read(move |c| db::track_path(c, track_id)).await? else {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
     let kind = kind.to_string();
     let k = kind.clone();
     app.db.call(move |c| db::add_event(c, uid, track_id, &k, seconds)).await?;
     if kind == "like" || kind == "complete" {
         app.crawler.on_positive(track_id).await;
     }
-    if kind == "like" && app.limits.pl8_writes.allow(&uid.to_string()) {
-        let row = app.db.call(move |c| db::track_path(c, track_id)).await?;
-        if let (Some((handle, slug)), Some((sealer, session))) = (row, app.connected(&current).await) {
-            app.sync.push_like(sealer, session, handle, slug);
-        }
+    if kind == "like" && app.limits.pl8_writes.allow(&uid.to_string())
+        && let Some((sealer, session)) = app.connected(&current).await
+    {
+        app.sync.push_like(sealer, session, handle, slug);
     }
     Ok((no_store(), Json(json!({ "ok": true }))).into_response())
 }
 
 /// One track, for a link into the app (`/?t=handle/slug`).
 pub async fn track(State(app): St, Extension(current): Extension<CurrentUser>, Query(q): Query<HashMap<String, String>>) -> Res {
-    let uid = match current.require() {
+    let uid = match reader(&app, &current) {
         Ok(u) => u.id,
         Err(r) => return Ok(r),
     };
@@ -155,7 +174,7 @@ pub async fn track(State(app): St, Extension(current): Extension<CurrentUser>, Q
     let (Some(handle), Some(slug)) = (handle, slug) else {
         return Ok(StatusCode::BAD_REQUEST.into_response());
     };
-    let Some(track) = app.db.call(move |c| ranker::track_by_path(c, &handle, &slug)).await? else {
+    let Some(track) = app.db.read(move |c| ranker::track_by_path(c, &handle, &slug)).await? else {
         return Ok(json_error(StatusCode::NOT_FOUND, "no such track here (yet)"));
     };
     let mut tracks = [track];
@@ -172,7 +191,7 @@ const FEW_NEIGHBOURS: usize = 3;
 /// Starts crawling the neighbourhood when it is new, so the sheet can poll while
 /// `exploring` is true.
 pub async fn artist(State(app): St, Extension(current): Extension<CurrentUser>, Query(q): Query<HashMap<String, String>>) -> Res {
-    let uid = match current.require() {
+    let uid = match reader(&app, &current) {
         Ok(u) => u.id,
         Err(r) => return Ok(r),
     };
@@ -182,7 +201,7 @@ pub async fn artist(State(app): St, Extension(current): Extension<CurrentUser>, 
     app.crawler.explore_artist(handle.clone()).await;
     let body = app
         .db
-        .call(move |c| {
+        .read(move |c| {
             let Some(artist) = db::artist(c, &handle)? else { return Ok(None) };
             let mut neighbours = vec![];
             for (h, weight) in ranker::scaled_neighbours(c, &handle)?.into_iter().take(SHEET_NEIGHBOURS) {
@@ -224,6 +243,10 @@ pub async fn follow(State(app): St, Extension(current): Extension<CurrentUser>, 
     };
     if !app.limits.events.allow(&uid.to_string()) {
         return Ok(StatusCode::TOO_MANY_REQUESTS.into_response());
+    }
+    let h = handle.clone();
+    if on && !app.db.read(move |c| db::artist_known(c, &h)).await? {
+        return Ok(json_error(StatusCode::NOT_FOUND, "unknown artist"));
     }
     let h = handle.clone();
     let added = app

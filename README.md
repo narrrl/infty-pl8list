@@ -40,8 +40,8 @@ elsewhere). Debug builds of the server read `web/dist` from disk, so `npm run bu
 to see changes on :8790 too.
 
 The server is the Rust crate in `backend/`, the front end is TypeScript in `web/` (Vite, no
-framework). The old Python server (`server.py` and friends) still works on the same database
-but not with this front end; to roll back, check out `54a436a`.
+framework). The old Python server is gone from the tree; it is in the history at `54a436a`,
+and still opens the same database.
 
 Before going public in Germany, set the Impressum variables below. `/impressum` and
 `/datenschutz` are filled in from them at startup; the texts are in `backend/templates/`.

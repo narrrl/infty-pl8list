@@ -349,7 +349,13 @@ pub struct Filters {
     pub bpm_max: Option<f64>,
 }
 
+#[cfg(test)]
 pub fn pick(conn: &Connection, user_id: i64, n: usize, f: Filters, ranker: &dyn Ranker) -> rusqlite::Result<Vec<Value>> {
+    pick_with(conn, user_id, n, f, ranker, &taste(conn, user_id)?)
+}
+
+/// `pick` with the user's taste worked out already.
+pub fn pick_with(conn: &Connection, user_id: i64, n: usize, f: Filters, ranker: &dyn Ranker, t: &Taste) -> rusqlite::Result<Vec<Value>> {
     let mut sql = String::from(
         "SELECT * FROM tracks t WHERE (t.full_access=1 OR t.preview_upload_id IS NOT NULL) \
          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.user_id=? AND e.kind='served' AND e.track_id=t.id)",
@@ -377,7 +383,6 @@ pub fn pick(conn: &Connection, user_id: i64, n: usize, f: Filters, ranker: &dyn 
         return Ok(vec![]);
     }
 
-    let t = taste(conn, user_id)?;
     let recent: Vec<String> = conn
         .prepare_cached(
             "SELECT t.handle FROM events e JOIN tracks t ON t.id=e.track_id \

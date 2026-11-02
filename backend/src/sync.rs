@@ -29,6 +29,8 @@ use crate::{
 /// A connected device resyncs on use once its last sync is this old.
 pub const RESYNC_AFTER: f64 = 6.0 * 3600.0;
 const MAX_PAGES: i64 = 20;
+/// A guest's likes and follows saved to pl8list when they sign in and stay connected.
+pub const MAX_GUEST_PUSH: usize = 200;
 const DEADLINE: Duration = Duration::from_secs(120);
 
 pub struct Syncer {
@@ -76,15 +78,21 @@ impl Syncer {
 
     /// Sync once with a fresh sign-in session, then log it out at pl8list.
     pub fn once(self: &Arc<Self>, user_id: i64, session: SecretString) {
-        self.spawn_sync(user_id, session, After::Logout);
+        self.spawn_sync(user_id, session, After::Logout, vec![]);
     }
 
     /// Sync with a connected device's session. Returns false if one is already running.
     pub fn linked(self: &Arc<Self>, sealer: Sealer, session: SecretString) -> bool {
-        self.spawn_sync(sealer.user_id, session, After::Store(sealer))
+        self.spawn_sync(sealer.user_id, session, After::Store(sealer), vec![])
     }
 
-    fn spawn_sync(self: &Arc<Self>, user_id: i64, session: SecretString, after: After) -> bool {
+    /// Like `linked`, saving `push` (paths like `[handle]` or `[handle, slug]`) to the
+    /// pl8list library first: what a guest liked and followed before signing in.
+    pub fn linked_with(self: &Arc<Self>, sealer: Sealer, session: SecretString, push: Vec<Vec<String>>) -> bool {
+        self.spawn_sync(sealer.user_id, session, After::Store(sealer), push)
+    }
+
+    fn spawn_sync(self: &Arc<Self>, user_id: i64, session: SecretString, after: After, push: Vec<Vec<String>>) -> bool {
         if !self.claim(user_id) {
             if let After::Logout = after {
                 // Never keep a one-time session around just because a sync is running.
@@ -102,7 +110,11 @@ impl Syncer {
                 }
             }
             let mut s = UserSession::new(session);
-            let res = tokio::time::timeout(DEADLINE, me.read_account(user_id, &mut s)).await;
+            let res = tokio::time::timeout(DEADLINE, async {
+                me.push_all(&mut s, &push).await?;
+                me.read_account(user_id, &mut s).await
+            })
+            .await;
             let expired = match &res {
                 Ok(Ok((feed, likes, follows))) => {
                     tracing::info!("synced pl8list: {feed} feed pages, {likes} new likes, {follows} new follows");
@@ -178,6 +190,24 @@ impl Syncer {
                 }
             }
         }
+    }
+
+    /// Save each path to the library, one after the other. A failed save is skipped;
+    /// an expired session ends it.
+    async fn push_all(&self, s: &mut UserSession, push: &[Vec<String>]) -> anyhow::Result<()> {
+        let mut saved = 0;
+        for path in push {
+            let parts: Vec<&str> = path.iter().map(String::as_str).collect();
+            match self.pl8.save(s, &parts).await {
+                Ok(()) => saved += 1,
+                Err(e) if e.is::<SessionExpired>() => return Err(e),
+                Err(e) => tracing::debug!("pl8list save failed: {e:#}"),
+            }
+        }
+        if !push.is_empty() {
+            tracing::info!("saved {saved} of {} guest likes and follows to pl8list", push.len());
+        }
+        Ok(())
     }
 
     /// Feed, saved tracks and saved artists. Returns (feed pages, new likes, new follows).

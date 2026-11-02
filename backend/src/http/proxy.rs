@@ -12,6 +12,7 @@
 
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -19,7 +20,7 @@ use std::{
 use axum::{
     Extension,
     extract::{Path, Query, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -28,7 +29,7 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{App, CurrentUser, Res, St};
+use super::{App, CurrentUser, Peer, Res, St, client_ip};
 use crate::cache::{self, IMAGE_TYPES, SEGMENT_TYPES};
 
 const MAX_PLAYLIST: usize = 256 << 10;
@@ -82,9 +83,9 @@ fn token_upload(token: &str) -> Option<String> {
     v.get("u")?.as_str().filter(|u| safe_segment(u, 128)).map(String::from)
 }
 
-fn require_user(app: &App, current: &CurrentUser) -> Result<(), Response> {
+fn require_user(app: &App, current: &CurrentUser, headers: &HeaderMap, peer: SocketAddr) -> Result<(), Response> {
     let user = current.require()?;
-    if !app.limits.proxy.allow(&user.id.to_string()) {
+    if !app.limits.proxy.allow(&user.id.to_string()) || !app.limits.proxy_ip.allow(&client_ip(app, headers, peer)) {
         return Err(StatusCode::TOO_MANY_REQUESTS.into_response());
     }
     Ok(())
@@ -133,10 +134,12 @@ pub struct PlaylistQuery {
 pub async fn playlist(
     State(app): St,
     Extension(current): Extension<CurrentUser>,
+    peer: Peer,
+    headers: HeaderMap,
     Path((handle, slug)): Path<(String, String)>,
     Query(q): Query<PlaylistQuery>,
 ) -> Res {
-    if let Err(r) = require_user(&app, &current) {
+    if let Err(r) = require_user(&app, &current, &headers, peer.0) {
         return Ok(r);
     }
     if !safe_segment(&handle, 64) || !safe_segment(&slug, 160) || q.v.as_deref().is_some_and(|v| !safe_segment(v, 128)) {
@@ -180,10 +183,12 @@ pub struct SegmentQuery {
 pub async fn segment(
     State(app): St,
     Extension(current): Extension<CurrentUser>,
+    peer: Peer,
+    headers: HeaderMap,
     Path((handle, slug, n)): Path<(String, String, String)>,
     Query(q): Query<SegmentQuery>,
 ) -> Res {
-    if let Err(r) = require_user(&app, &current) {
+    if let Err(r) = require_user(&app, &current, &headers, peer.0) {
         return Ok(r);
     }
     let token = q.st.unwrap_or_default();
@@ -219,8 +224,8 @@ pub async fn segment(
     Ok(media(ctype, body, "private, max-age=86400"))
 }
 
-pub async fn image(State(app): St, Extension(current): Extension<CurrentUser>, Path(id): Path<String>) -> Res {
-    if let Err(r) = require_user(&app, &current) {
+pub async fn image(State(app): St, Extension(current): Extension<CurrentUser>, peer: Peer, headers: HeaderMap, Path(id): Path<String>) -> Res {
+    if let Err(r) = require_user(&app, &current, &headers, peer.0) {
         return Ok(r);
     }
     if id.len() > 64 || id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {

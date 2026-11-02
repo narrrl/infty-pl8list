@@ -301,6 +301,7 @@ async fn connected_device_syncs_library_and_pushes_likes_and_follows() {
 
     let res = r.clone().oneshot(req("POST", "/local/event", Some(r#"{"track_id":77,"kind":"like"}"#), Some(&session), "203.0.113.9")).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
+    known_track(&app, 78, "artist3").await;
     let res = r.clone().oneshot(req("POST", "/local/follow", Some(r#"{"handle":"artist3","follow":true}"#), Some(&session), "203.0.113.9")).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     assert!(wait_for(&pl8, |q| q.url.path() == "/api/artist1/song/add-to-library").await);
@@ -507,10 +508,17 @@ async fn artist_sheet_and_radio_reasons() {
     assert_eq!(why[&3], serde_json::json!({ "kind": "via", "handle": "b", "name": "B" }));
 }
 
+/// A track (and so its artist) in the catalogue; events and follows only take known ones.
+async fn known_track(app: &crate::http::App, id: i64, handle: &str) {
+    let t = crate::db::Track { id, handle: handle.into(), artist_name: handle.into(), slug: format!("track-{id}"), title: "T".into(), ..Default::default() };
+    app.db.call(move |c| crate::db::upsert_tracks(c, &[t], None)).await.unwrap();
+}
+
 #[tokio::test]
 async fn guests_listen_and_keep_it_all_when_they_sign_in() {
     let pl8 = fake_pl8list(1).await;
     let (r, app, _) = setup("guest", &pl8.uri()).await;
+    known_track(&app, 7, "motus").await;
     let res = r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.20")).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let guest = cookie_pair(&set_cookies(&res), "__Host-pl8inf");
@@ -520,6 +528,11 @@ async fn guests_listen_and_keep_it_all_when_they_sign_in() {
     for (uri, body) in [("/local/event", r#"{"track_id":7,"kind":"like"}"#), ("/local/follow", r#"{"handle":"motus","follow":true}"#)] {
         let res = r.clone().oneshot(req("POST", uri, Some(body), Some(&guest), "203.0.113.20")).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK, "{uri}");
+    }
+    // Nothing the catalogue does not know.
+    for (uri, body) in [("/local/event", r#"{"track_id":999,"kind":"like"}"#), ("/local/follow", r#"{"handle":"nobody-here","follow":true}"#)] {
+        let res = r.clone().oneshot(req("POST", uri, Some(body), Some(&guest), "203.0.113.20")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND, "{uri}");
     }
 
     // Signing in on the same device takes the guest's likes and follows along.
@@ -550,6 +563,7 @@ async fn guests_listen_and_keep_it_all_when_they_sign_in() {
 #[tokio::test]
 async fn guests_leave_nothing_behind_and_are_capped_per_ip() {
     let (r, app, _) = setup("guest-gone", "http://127.0.0.1:9").await;
+    known_track(&app, 7, "motus").await;
     let res = r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.21")).await.unwrap();
     let guest = cookie_pair(&set_cookies(&res), "__Host-pl8inf");
     // A device with a session gets no second guest.
@@ -575,4 +589,33 @@ async fn guests_leave_nothing_behind_and_are_capped_per_ip() {
         statuses.push(r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.21")).await.unwrap().status());
     }
     assert_eq!(statuses.iter().filter(|s| **s == StatusCode::TOO_MANY_REQUESTS).count(), 2);
+}
+
+#[tokio::test]
+async fn guest_staying_connected_saves_what_they_liked_to_pl8list() {
+    let pl8 = fake_pl8list(0).await;
+    let (r, app, _) = setup("guest-push", &pl8.uri()).await;
+    known_track(&app, 7, "motus").await;
+    let res = r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.22")).await.unwrap();
+    let guest = cookie_pair(&set_cookies(&res), "__Host-pl8inf");
+    for (uri, body) in [("/local/event", r#"{"track_id":7,"kind":"like"}"#), ("/local/follow", r#"{"handle":"motus","follow":true}"#)] {
+        let res = r.clone().oneshot(req("POST", uri, Some(body), Some(&guest), "203.0.113.22")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{uri}");
+    }
+    let res = r.clone().oneshot(req("POST", "/auth/start", Some(r#"{"email":"a@b.de"}"#), None, "203.0.113.22")).await.unwrap();
+    let login = cookie_pair(&set_cookies(&res), "__Host-pl8inf_login");
+    let both = format!("{login}; {guest}");
+    let res = r.clone().oneshot(req("POST", "/auth/verify", Some(r#"{"code":"123456","connect":true}"#), Some(&both), "203.0.113.22")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(wait_for(&pl8, |q| q.url.path() == "/api/motus/add-to-library").await, "follow not saved");
+    assert!(wait_for(&pl8, |q| q.url.path() == "/api/motus/track-7/add-to-library").await, "like not saved");
+}
+
+#[tokio::test]
+async fn radio_of_an_unknown_artist_is_not_found() {
+    let (r, _app, _) = setup("explore-unknown", "http://127.0.0.1:9").await;
+    let res = r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.23")).await.unwrap();
+    let guest = cookie_pair(&set_cookies(&res), "__Host-pl8inf");
+    let res = r.clone().oneshot(req("GET", "/local/artist?handle=made-up-handle", None, Some(&guest), "203.0.113.23")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
