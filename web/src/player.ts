@@ -20,7 +20,6 @@ const CROSSFADE_KEY = "pl8inf.crossfade";
 const BASS_KEY = "pl8inf.bass";
 const BASS_DB = 6; // gain of the bass boost's low shelf …
 const BASS_HZ = 120; // … below this
-const TAPE_STOP = 0.45; // s the rewind's tape stop takes
 
 type Hls = HlsType;
 type HlsClass = typeof HlsType;
@@ -299,32 +298,6 @@ export class Player {
   pause(): void {
     this.decks[this.cur].wantPlay = false;
     this.audio.pause();
-  }
-
-  /// The soundsystem rewind: the record is pulled back, the music slows down and
-  /// drops in pitch, and the tune starts again from the top.
-  async wheelUp(): Promise<void> {
-    const a = this.audio;
-    if (a.paused) {
-      this.seek(0);
-      this.resume();
-      return;
-    }
-    const pitch = a.preservesPitch;
-    a.preservesPitch = false;
-    const t0 = performance.now();
-    await new Promise<void>((done) => {
-      const step = () => {
-        const k = Math.min(1, (performance.now() - t0) / 1000 / TAPE_STOP);
-        a.playbackRate = Math.max(0.1, 1 - 0.9 * k * k);
-        if (k < 1) requestAnimationFrame(step);
-        else done();
-      };
-      requestAnimationFrame(step);
-    });
-    a.playbackRate = 1;
-    a.preservesPitch = pitch;
-    this.seek(0);
   }
 
   seek(seconds: number): void {

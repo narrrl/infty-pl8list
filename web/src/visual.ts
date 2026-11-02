@@ -143,12 +143,6 @@ export class Visualizer {
     return this.blob?.lost ? null : this.blob;
   }
 
-  /// Spin the drop backwards, hard: the rewind.
-  wheelUp(): void {
-    this.blob?.spin.fling([0, -26, 0]);
-    this.start();
-  }
-
   /// A play/pause from a tap was taken back by the second tap of a double-tap.
   cancelFlash(): void {
     this.blob?.settleIcon();

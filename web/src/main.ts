@@ -16,7 +16,6 @@ const PREFETCH_AHEAD = 4; // fetch more when this close to the end
 const SKIP_SECONDS = 8; // leaving earlier than this counts as a skip
 const COMPLETE_RATIO = 0.85;
 const DOUBLE_TAP_MS = 300;
-const LONG_PRESS_MS = 550; // holding the drop this long rewinds the tune
 const PRELOAD_AFTER_MS = 2500; // start buffering the next track once this one has played a bit
 const KEEP_BUILT = 3; // cards further than this from the current one drop their elements
 const HISTORY_AFTER = 1; // s heard before a track goes into the history
@@ -322,14 +321,6 @@ async function share(card: Card): Promise<void> {
   }
 }
 
-/// The rewind: spin the drop back, slow the tune down, and run it again.
-function wheelUp(): void {
-  if (!current()) return;
-  visual.wheelUp();
-  player.wheelUp();
-  toast("wheel up!");
-}
-
 // Player events -----------------------------------------------------------
 
 player.on("timeupdate", () => {
@@ -430,38 +421,15 @@ if ("mediaSession" in navigator) {
   }
 }
 
-// Tap to play/pause, double-tap to like, hold to rewind ---------------------
+// Tap to play/pause, double-tap to like -------------------------------------
 
 let lastTap: { at: number; card: Card | null; toggled: boolean } = { at: 0, card: null, toggled: false };
-let press: { timer: number; x: number; y: number } | null = null;
-let pressFired = false;
 
-feedEl.addEventListener("pointerdown", (e) => {
-  if (!started || !(e.target as Element).closest(".card.current .art")) return;
-  pressFired = false;
-  press = {
-    x: e.clientX,
-    y: e.clientY,
-    timer: window.setTimeout(() => {
-      press = null;
-      pressFired = true;
-      wheelUp();
-    }, LONG_PRESS_MS),
-  };
-});
-const cancelPress = (e: PointerEvent) => {
-  if (press && (e.type !== "pointermove" || Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10)) {
-    clearTimeout(press.timer);
-    press = null;
-  }
-};
-for (const ev of ["pointermove", "pointerup", "pointercancel"]) feedEl.addEventListener(ev, (e) => cancelPress(e as PointerEvent));
 // A long press opens the context menu on some phones.
 feedEl.addEventListener("contextmenu", (e) => { if ((e.target as Element).closest(".art")) e.preventDefault(); });
 
 feedEl.addEventListener("click", (e) => {
   if (pager.suppressClick) return;
-  if (pressFired) { pressFired = false; return; }
   const target = e.target as Element;
   if (target.closest("button, a, input, .wave-wrap")) return;
   const el = target.closest(".card");
@@ -554,7 +522,7 @@ function start(): void {
   showUpNext();
   if (!localStorage.getItem(HINT_KEY)) {
     localStorage.setItem(HINT_KEY, "1");
-    toast(isTouch ? "tap to pause · double-tap to like · hold the drop to rewind"
+    toast(isTouch ? "tap to pause · double-tap to like · swipe up for next"
                   : "click to pause · double-click to like · ? for shortcuts", 5000);
   }
 }
@@ -990,7 +958,6 @@ document.addEventListener("keydown", (e) => {
   else if (k === "r" && card) actions.radio(card);
   else if (k === "x" && card) dislike(card);
   else if (k === "s" && card) share(card);
-  else if (k === "w") wheelUp();
   else if (k === "h") sheets.history.open();
   else if (k === "c") sheets.filters.open();
   else if (k === "v") { setVisuals(visual.visuals === "liquid" ? "simple" : "liquid"); toast(`${visual.visuals} visuals`); }
