@@ -43,6 +43,7 @@ const SLOW_FOR = 2; // … and this many seconds of them step the quality down
 const FAST_FOR = 10; // s of frames on time before it tries one step up again
 /// Quality steps: icosphere subdivisions and resolution scale.
 const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
+const MAX_PIXELS = 2.6e6; // canvas pixels at full quality, about 1600 x 1600
 
 const UNIFORMS = [
   "uProj", "uDist", "uTime", "uMorph", "uLevel", "uWobble", "uKick", "uKickAge", "uSnare", "uDrop", "uBass", "uGrowl",
@@ -252,8 +253,10 @@ export class LiquidBlob {
     const gl = this.gl;
     const { playing } = s;
     if (playing) this.watch(dt);
-    const scale = this.density() * QUALITY[this.quality][1];
-    const w = Math.round(this.canvas.clientWidth * scale), h = Math.round(this.canvas.clientHeight * scale);
+    const cw = this.canvas.clientWidth, ch = this.canvas.clientHeight;
+    // The drop is big on big screens: past MAX_PIXELS it gets no sharper, only slower.
+    const scale = Math.min(this.density(), Math.sqrt(MAX_PIXELS / (cw * ch || 1))) * QUALITY[this.quality][1];
+    const w = Math.round(cw * scale), h = Math.round(ch * scale);
     if (!w || !h) return false;
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;

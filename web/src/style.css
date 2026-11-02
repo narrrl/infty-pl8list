@@ -133,7 +133,38 @@ body.zen #bar { display: none; }
   color: #000;
 }
 #volume { display: flex; align-items: center; gap: 0.3rem; margin-right: 0.3rem; }
-#volume-slider { width: 5.5rem; accent-color: var(--accent); cursor: pointer; }
+/* A slim track filled up to --v (main.ts), and a small round thumb. */
+#volume-slider {
+  --v: 100%;
+  width: 5.5rem;
+  height: 1rem;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: linear-gradient(90deg, var(--fg) var(--v), #ffffff30 var(--v)) center / 100% 4px no-repeat;
+  border-radius: 999px;
+  cursor: pointer;
+}
+#volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--fg);
+  box-shadow: 0 0 0 3px #0006;
+  transition: transform var(--fast);
+}
+#volume-slider::-moz-range-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: none;
+  border-radius: 50%;
+  background: var(--fg);
+  box-shadow: 0 0 0 3px #0006;
+  transition: transform var(--fast);
+}
+#volume-slider:hover::-webkit-slider-thumb { transform: scale(1.25); }
+#volume-slider:hover::-moz-range-thumb { transform: scale(1.25); }
 #mode-chip {
   max-width: 16rem;
   display: inline-flex;
@@ -1071,6 +1102,77 @@ body.zen #bar, body.zen .actions, body.zen .chips, body.zen .desc, body.zen .cou
 body.zen .why, body.zen .byline button, body.zen #feed-status { display: none; }
 body.zen .art { width: min(30rem, 62vh, 86vw); }
 body.zen .content { gap: 0.3rem; }
+
+/* Desktop ---------------------------------------------------------------- */
+
+/* The card grows with the window, so a big screen is not a phone layout lost in
+   the middle of it. --u is a rem that grows with the window: 1rem at 1280x800,
+   1.5rem around 2000x1100, at most 1.6rem; the shorter side decides. */
+@media (min-width: 900px) and (pointer: fine) {
+  #bar { padding: 1rem 1.6rem; }
+  .logo { font-size: 1.15rem; }
+  #mode-tabs { padding: 0.25rem; }
+  #mode-tabs button { font-size: 0.95rem; padding: 0.45em 1.15em; }
+  /* The controls as one glass capsule, a match for the tabs. */
+  .bar-end {
+    gap: 0.15rem;
+    padding: 0.25rem;
+    border-radius: 999px;
+    background: var(--glass);
+    backdrop-filter: blur(12px);
+  }
+  .bar-end .icon-btn { width: 2.5rem; height: 2.5rem; background: none; }
+  .bar-end .icon-btn:hover, .bar-end .icon-btn[aria-expanded="true"] { background: var(--glass-strong); }
+  .bar-end .icon-btn svg { width: 1.15rem; height: 1.15rem; }
+  .avatar-btn { width: 2.5rem; height: 2.5rem; margin-left: 0.2rem; }
+  #volume { margin: 0 0.5rem 0 0; gap: 0.2rem; }
+
+  .card {
+    --u: clamp(1rem, min(2.667vh - 0.33rem, 1.111vw + 0.11rem), 1.6rem);
+    /* Above the true middle, where the eye puts it, and clear of up next. */
+    padding-bottom: 4vh;
+  }
+  .content { width: min(calc(30 * var(--u)), 56vw); gap: calc(0.6 * var(--u)); }
+  .art { width: min(calc(16 * var(--u)), 46vh); margin-bottom: calc(1.2 * var(--u)); }
+  .title { font-size: calc(1.45 * var(--u)); }
+  .why { font-size: 0.8rem; }
+  .byline { gap: 0.6rem; font-size: 1.1rem; }
+  .artist-avatar { width: 2rem; height: 2rem; font-size: 0.85rem; }
+  .pill { font-size: 0.85rem; padding: 0.3em 0.9em 0.3em 0.7em; }
+  .chips { gap: 0.5rem; }
+  .chips span { font-size: 0.85rem; padding: 0.2em 0.75em; }
+  .desc { font-size: 0.95rem; }
+  .wave-wrap { margin-top: calc(0.8 * var(--u)); }
+  .wave { height: calc(4 * var(--u)); }
+  .time { font-size: 0.85rem; }
+
+  /* The actions beside the content, not lost at the edge of the screen. */
+  .actions {
+    top: calc(50% - 2vh);
+    bottom: auto;
+    right: auto;
+    left: min(calc(50% + min(calc(15 * var(--u)), 28vw) + 2.5rem), calc(100% - 5rem));
+    translate: 0 -50%;
+    gap: 1rem;
+  }
+  .act { gap: 0.3rem; font-size: 0.75rem; }
+  .act .ring {
+    width: 3.5rem;
+    height: 3.5rem;
+    background: var(--glass);
+    box-shadow: inset 0 0 0 1px #ffffff14;
+    backdrop-filter: blur(10px);
+  }
+  .act:hover .ring { background: var(--glass-strong); }
+  .act svg { width: 1.5rem; height: 1.5rem; }
+
+  #up-next { bottom: 1.6rem; max-width: 28rem; gap: 0.75rem; padding: 0.4rem 1.2rem 0.4rem 0.4rem; }
+  .up-next-avatar { width: 2.6rem; height: 2.6rem; }
+  .up-next-title { font-size: 0.95rem; }
+  #toast { bottom: 6rem; }
+
+  body.zen .art { width: min(40rem, 70vh); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

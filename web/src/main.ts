@@ -504,6 +504,8 @@ function showVolume(): void {
   muteBtn.querySelector("use")!.setAttribute("href", silent ? "#i-mute" : "#i-vol");
   muteBtn.setAttribute("aria-pressed", String(player.muted));
   volumeSlider.value = String(player.muted ? 0 : player.volume);
+  // How far the slider's track is filled (style.css).
+  volumeSlider.style.setProperty("--v", `${Number(volumeSlider.value) * 100}%`);
 }
 
 function setMuted(m: boolean): void {
