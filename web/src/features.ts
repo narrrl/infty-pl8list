@@ -33,6 +33,21 @@ export interface Features {
   growl: number;
   /// 0..1, high while the low end sits well above its recent average.
   drop: number;
+  /// 0..1, high while the low end has dropped out after sounding: the stop before a
+  /// drop, the gaps a riddim leaves.
+  gap: number;
+  /// How often the bass line goes "womb", Hz; 0 until there were a few.
+  wobbleRate: number;
+  /// Where the music is in its bar, from the track's tempo locked onto the kicks:
+  /// `beat` 0..1 within the beat, `beatNo` 0..3, `bar` 0..1 within the bar.
+  beat: number;
+  beatNo: number;
+  bar: number;
+  /// Seconds per beat.
+  period: number;
+  /// How sure the bar is: the strength of recent kicks on the downbeat. Above
+  /// about 2 the downbeat has been hit several times in the last seconds.
+  lock: number;
 }
 
 const BANDS = { sub: [30, 90], low: [90, 250], mid: [250, 2000], high: [2000, 10000] } as const;
@@ -68,6 +83,20 @@ const DROP_RISE_DB = 2.5; // dB above the long average where a drop starts
 const DROP_FULL_DB = 5; // dB above the start for a full drop
 const DROP_ATTACK = 0.25; // s
 const DROP_RELEASE = 2; // s
+const GAP_DB = 12; // dB under the long average where the low end counts as gone …
+const GAP_FULL_DB = 12; // … and this much more for a full gap
+const GAP_ATTACK = 0.06; // s
+const GAP_RELEASE = 0.12; // s
+const GAP_HEARD = 2; // s of sound before a gap can be one
+const WOMB_UP = 0.62; // the bass envelope crossing up through this is one "womb" …
+const WOMB_DOWN = 0.38; // … once it fell below this since the last
+const WOMB_MIN = 0.06; // s; closer wombs are one
+const WOMB_MAX = 1.5; // s; further apart, the wobble stopped
+const WOMB_SMOOTH = 0.25; // weight of each new interval
+const BEATS_PER_BAR = 4;
+const BEAT_PULL = 0.25; // how far a kick pulls the beat towards itself
+const BEAT_MIN_HIT = 0.3; // kicks weaker than this leave the beat alone
+const DOWNBEAT_MEMORY = 8; // s; the downbeat is the slot with the strongest kicks this recent
 // Without an analyser the waveform stands in. Its steps are coarse, so a rise from
 // one step to the next is the only "onset" there is.
 const LOUD_FLOOR = 0.02; // loudness treated as silence, so a rise from nothing is finite
@@ -128,7 +157,18 @@ class Onset {
 }
 
 export class FeatureTracker {
-  readonly f: Features = { sub: 0, low: 0, mid: 0, high: 0, kick: 0, snare: 0, kickAge: 99, kickHit: 0, snareHit: 0, wobble: 0, bass: 0, growl: 0, drop: 0 };
+  readonly f: Features = {
+    sub: 0, low: 0, mid: 0, high: 0, kick: 0, snare: 0, kickAge: 99, kickHit: 0, snareHit: 0, wobble: 0, bass: 0, growl: 0,
+    drop: 0, gap: 0, wobbleRate: 0, beat: 0, beatNo: 0, bar: 0, period: 60 / 140, lock: 0,
+  };
+  /// Seconds per beat, from the track's BPM.
+  private period = 60 / 140;
+  /// Beats since the track started, kept in step with the kicks.
+  private phase = 0;
+  /// Kick strength per beat of the bar, fading; the strongest slot is the downbeat.
+  private slots = [0, 0, 0, 0];
+  private wombAt = -1;
+  private wombArmed = true;
   private bins: Float32Array<ArrayBuffer> | null = null;
   private prev: Float32Array<ArrayBuffer> | null = null;
   private ranges = { sub: new Range(), low: new Range(), mid: new Range(), high: new Range() };
@@ -146,6 +186,19 @@ export class FeatureTracker {
   /// Seconds of sound heard so far: the long average covers no more than that, so
   /// music that starts in the middle of a drop is the baseline, not a drop.
   private heard = 0;
+
+  /// A new track: its tempo, and nothing carried over about where its bar is.
+  /// Half-time notation (70 for a 140 tune) counts double.
+  setTempo(bpm: number | null): void {
+    let b = bpm && bpm >= 50 && bpm <= 220 ? bpm : 140;
+    if (b < 100) b *= 2;
+    this.period = this.f.period = 60 / b;
+    this.phase = 0;
+    this.slots = [0, 0, 0, 0];
+    this.wombAt = -1;
+    this.f.wobbleRate = 0;
+    this.f.lock = 0;
+  }
 
   /// One frame from the analyser.
   fromAnalyser(an: AnalyserNode, now: number, dt: number): Features {
@@ -200,6 +253,7 @@ export class FeatureTracker {
     f.snare = this.snare.env;
     f.snareHit = this.snare.hit;
     this.track(f.mid, Math.max(db.sub, db.low), dt);
+    this.rhythm(now, dt);
     return f;
   }
 
@@ -217,6 +271,7 @@ export class FeatureTracker {
     f.kickHit = this.loudKick.hit;
     f.snare = f.snareHit = 0;
     this.track(level, level > 0 ? 20 * Math.log10(level) : SILENCE_DB, dt);
+    this.rhythm(now, dt);
     return f;
   }
 
@@ -225,7 +280,7 @@ export class FeatureTracker {
     const f = this.f;
     const k = Math.exp(-dt / 0.35);
     f.sub *= k; f.low *= k; f.mid *= k; f.high *= k;
-    f.kick *= k; f.snare *= k; f.wobble *= k; f.drop *= k; f.bass *= k; f.growl *= k;
+    f.kick *= k; f.snare *= k; f.wobble *= k; f.drop *= k; f.bass *= k; f.growl *= k; f.gap *= k;
     f.kickAge += dt;
     f.kickHit = f.snareHit = 0;
     return f;
@@ -248,5 +303,45 @@ export class FeatureTracker {
     this.long += (lowDb - this.long) * ease(dt, Math.min(DROP_LONG, DROP_SHORT + this.heard));
     const target = clamp01((this.short - this.long - DROP_RISE_DB) / DROP_FULL_DB);
     f.drop += (target - f.drop) * ease(dt, target > f.drop ? DROP_ATTACK : DROP_RELEASE);
+    // The gap is against this frame's level: a stop of half a bar is over before
+    // a smoothed level would notice it.
+    const gap = this.heard < GAP_HEARD ? 0 : clamp01((this.long - lowDb - GAP_DB) / GAP_FULL_DB);
+    f.gap += (gap - f.gap) * ease(dt, gap > f.gap ? GAP_ATTACK : GAP_RELEASE);
+  }
+
+  /// The beat and the bar, and the rate of the wobble.
+  private rhythm(now: number, dt: number): void {
+    const f = this.f;
+    this.phase += dt / this.period;
+    const fade = Math.exp(-dt / DOWNBEAT_MEMORY);
+    for (let i = 0; i < BEATS_PER_BAR; i++) this.slots[i] *= fade;
+    if (f.kickHit >= BEAT_MIN_HIT) {
+      // A kick lands on the nearest beat: pull the clock towards it.
+      const nearest = Math.round(this.phase);
+      this.phase -= (this.phase - nearest) * BEAT_PULL * f.kickHit;
+      const slot = ((nearest % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR;
+      this.slots[slot] += f.kickHit;
+    }
+    f.lock = Math.max(...this.slots);
+    const down = this.slots.indexOf(f.lock);
+    const inBar = (((this.phase - down) % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR;
+    f.beatNo = Math.floor(inBar);
+    f.beat = inBar - f.beatNo;
+    f.bar = inBar / BEATS_PER_BAR;
+
+    // Each "womb" of the bass is its envelope rising through WOMB_UP.
+    if (f.bass < WOMB_DOWN) this.wombArmed = true;
+    if (this.wombArmed && f.bass > WOMB_UP) {
+      this.wombArmed = false;
+      const since = this.wombAt < 0 ? Infinity : now - this.wombAt;
+      if (since >= WOMB_MIN) {
+        if (since <= WOMB_MAX) {
+          const rate = 1 / since;
+          f.wobbleRate = f.wobbleRate ? f.wobbleRate + (rate - f.wobbleRate) * WOMB_SMOOTH : rate;
+        }
+        this.wombAt = now;
+      }
+    }
+    if (this.wombAt >= 0 && now - this.wombAt > WOMB_MAX * 2) f.wobbleRate *= Math.exp(-dt / 0.5);
   }
 }

@@ -3,6 +3,7 @@
 // page; cards around it show their artwork as a plain image.
 
 import type { Features } from "../features";
+import { Flares } from "./flares";
 import { icosphere } from "./mesh";
 import { FRAGMENT, VERTEX } from "./shaders";
 import { Spin } from "./spin";
@@ -43,6 +44,11 @@ const SLOW_FOR = 2; // … and this many seconds of them step the quality down
 const FAST_FOR = 10; // s of frames on time before it tries one step up again
 /// Quality steps: icosphere subdivisions and resolution scale.
 const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
+/// Solar flare loops at most, per quality step.
+const FLARE_LOOPS = [10, 8, 6, 4];
+
+/// Solar flares: "auto" shows them where the track's look asks for them (style.ts).
+export type FlareSetting = "auto" | "on" | "off";
 const MAX_PIXELS = 2.6e6; // canvas pixels at full quality, about 1600 x 1600
 
 const UNIFORMS = [
@@ -75,6 +81,13 @@ export class LiquidBlob {
   /// Turning it by hand.
   readonly spin = new Spin();
   private gl: WebGL2RenderingContext;
+  private prog!: WebGLProgram;
+  /// The loops round the drop; null if their shaders failed, which leaves the drop.
+  private flares: Flares | null = null;
+  flareSetting: FlareSetting = "auto";
+  private proj = perspective(FOV, 1, 0.1, 20);
+  private scaleNow: [number, number, number] = [1, 1, 1];
+  private liftNow = 0;
   private u = {} as Record<(typeof UNIFORMS)[number], WebGLUniformLocation | null>;
   private vao!: WebGLVertexArrayObject;
   private buffers: WebGLBuffer[] = [];
@@ -159,6 +172,7 @@ export class LiquidBlob {
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || "link failed");
     gl.useProgram(prog);
+    this.prog = prog;
     for (const name of UNIFORMS) this.u[name] = gl.getUniformLocation(prog, name);
     this.vao = gl.createVertexArray();
     this.buffers = [];
@@ -169,13 +183,20 @@ export class LiquidBlob {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.uniform1i(this.u.uArt, 0);
-    gl.uniformMatrix4fv(this.u.uProj, false, perspective(FOV, 1, 0.1, 20));
+    gl.uniformMatrix4fv(this.u.uProj, false, this.proj);
     gl.uniform1f(this.u.uDist, DIST);
     gl.enable(gl.DEPTH_TEST);
     // The edge fades into the page; the canvas is premultiplied.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
+    try {
+      this.flares = new Flares(gl, FLARE_LOOPS[this.quality]);
+    } catch (err) {
+      this.flares = null;
+      console.warn("no solar flares:", (err as Error).message);
+    }
+    gl.useProgram(prog);
   }
 
   private shader(type: number, src: string): WebGLShader {
@@ -215,6 +236,7 @@ export class LiquidBlob {
     this.morph = 0;
     this.slow = this.fast = 0;
     this.spin.reset();
+    this.flares?.reset();
     this.iconFor = null;
     const source = await artwork(art, initial, tint).catch(() => artwork(null, initial, tint));
     if (gen !== this.gen || this.gl.isContextLost()) return false;
@@ -251,6 +273,7 @@ export class LiquidBlob {
     const look = this.look;
     if (!look || !this.ready) return false;
     const gl = this.gl;
+    gl.useProgram(this.prog);
     const { playing } = s;
     if (playing) this.watch(dt);
     const cw = this.canvas.clientWidth, ch = this.canvas.clientHeight;
@@ -307,7 +330,18 @@ export class LiquidBlob {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.bindVertexArray(this.vao);
     gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0);
-    return this.morph < 1 || moving || spinning || showing || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
+    const strength = this.flareSetting === "off" ? 0 : this.flareSetting === "on" ? Math.max(1, look.flares) : look.flares;
+    // Not while the drop is still flat artwork, nor over the icon.
+    const flaring = !!this.flares && this.flares.frame(f, dt, look, playing && morph > 0.9, strength * (1 - this.calm), f.period, {
+      proj: this.proj,
+      dist: DIST,
+      rot: this.spin.matrix,
+      scale: this.scaleNow,
+      lift: this.liftNow,
+      accent: this.accent,
+      toObject: (x, y, z) => this.spin.toObject(x, y, z),
+    });
+    return this.morph < 1 || moving || spinning || showing || flaring || this.pointer[3] > 0.01 || this.pointerGoal[3] > 0;
   }
 
   /// Canvas pixels per CSS pixel at full quality. Phones stay at 1.5 at most, for
@@ -344,8 +378,10 @@ export class LiquidBlob {
     const whirl = Math.min(1, this.spin.speed / WHIRL);
     const side = (size / Math.sqrt(stretch)) * (1 + 0.08 * whirl);
     const u = this.u;
-    this.gl.uniform3f(u.uScale, side, size * stretch * (1 - 0.06 * whirl), side);
-    this.gl.uniform1f(u.uLift, Math.max(0, jump[0]));
+    this.scaleNow = [side, size * stretch * (1 - 0.06 * whirl), side];
+    this.liftNow = Math.max(0, jump[0]);
+    this.gl.uniform3f(u.uScale, ...this.scaleNow);
+    this.gl.uniform1f(u.uLift, this.liftNow);
     this.gl.uniform1f(u.uJelly, Math.min(1, Math.abs(jump[1]) * 0.4 + Math.abs(pump[1]) * 0.6 + 0.5 * whirl));
     return Math.abs(jump[0]) + Math.abs(jump[1]) + Math.abs(pump[1]) > 0.002;
   }
@@ -409,6 +445,7 @@ export class LiquidBlob {
       `vertex highp ${hp ? hp.precision : "?"} bits`,
       `ready ${this.ready} · lost ${gl.isContextLost()} · error ${gl.getError()}`,
       `morph ${this.morph.toFixed(2)} · quality ${this.quality} · canvas ${this.canvas.width}x${this.canvas.height}`,
+      `flares ${this.flares ? this.flareSetting : "failed"} · look ${this.look?.flares ?? "-"}`,
       `in page ${this.canvas.isConnected} · css ${this.canvas.clientWidth}x${this.canvas.clientHeight}`,
     ].join("\n");
   }
@@ -438,6 +475,7 @@ export class LiquidBlob {
     const before = QUALITY[this.quality][0];
     this.quality = q;
     if (QUALITY[q][0] !== before) this.buildMesh();
+    this.flares?.setMax(FLARE_LOOPS[q]);
   }
 }
 

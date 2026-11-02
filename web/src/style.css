@@ -230,6 +230,7 @@ body.zen #bar { display: none; }
   color: var(--muted);
 }
 #sleep-left { text-transform: none; letter-spacing: 0; color: var(--accent); }
+#flares-setting legend small { text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; }
 .sheet-actions { display: flex; align-items: center; gap: 1rem; }
 .sheet-tools { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .sheet-tools input[type=search] {
@@ -646,6 +647,20 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 .wave-wrap.hover .wave-tip { opacity: 1; }
 .time { width: 100%; display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 .counts { opacity: 0.8; }
+.to-drop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  margin-right: auto;
+  padding: 0.05em 0.6em;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  font-size: inherit;
+}
+.to-drop svg { width: 0.9em; height: 0.9em; }
+.to-drop:hover { border-color: var(--card-accent, var(--accent)); color: var(--card-accent, var(--accent)); }
 
 .actions {
   position: absolute;
@@ -839,6 +854,26 @@ body.zen #up-next { display: none; }
 @keyframes beckon { to { box-shadow: 0 0 0 2rem transparent; } }
 .start-track { margin: 0.4rem 0 0; font-weight: 700; font-size: 1.1rem; text-align: center; padding: 0 1rem; }
 .start-hint { margin: 0; color: var(--muted); font-size: 0.85rem; }
+/* First visit: the overlay is the welcome, and the logo and the way to sign in show. */
+.start-logo, .start-welcome { display: none; }
+#start.welcome .start-logo { display: flex; align-items: center; gap: 0.3em; margin: 0 0 1rem; font-size: 2rem; }
+.start-logo svg { width: 1em; height: 1em; }
+.start-logo b { color: var(--accent); }
+#start.welcome .start-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  position: absolute;
+  bottom: max(1.5rem, env(safe-area-inset-bottom));
+  max-width: 32rem;
+  padding: 0 1.2rem;
+  text-align: center;
+  cursor: default;
+}
+.start-welcome a { color: inherit; }
+/* A guest's account button says what it is for. */
+.avatar-btn.guest { width: auto; padding: 0 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.85rem; color: var(--fg); }
 
 /* Radio sheet: a bottom sheet on phones, a centred box elsewhere. */
 #station {
@@ -1001,10 +1036,7 @@ button.primary:disabled { opacity: 0.35; cursor: default; }
 #code { font-family: ui-monospace, monospace; font-size: 1.4rem; letter-spacing: 0.5em; text-align: center; }
 .login-box button[type=submit] { background: var(--accent); border: none; color: #fff; padding: 0.7em; font-weight: 600; }
 /* Listening without an account comes first; signing in is the quieter way below. */
-#guest-start { display: flex; flex-direction: column; gap: 0.6rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--line); }
-#guest-btn { width: 100%; font-size: 1.05rem; padding: 0.8em; }
-#guest-start .or { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.85rem; text-align: center; }
-#guest-start:not([hidden]) ~ #email-form button[type=submit] { background: none; border: 1px solid var(--line-strong); color: var(--fg); }
+.login-box .or { margin: 0; color: var(--muted); font-size: 0.85rem; }
 .login-box button[disabled] { opacity: 0.6; cursor: wait; }
 .login-links { display: flex; justify-content: space-between; }
 .login-box label.check { display: flex; gap: 0.6rem; align-items: flex-start; color: var(--fg); cursor: pointer; }

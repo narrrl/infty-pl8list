@@ -139,6 +139,8 @@ export const trackUrl = (t: Track) => `${PL8}/${t.handle}/${t.slug}`;
 /// A link that opens this app on the track.
 export const appTrackUrl = (t: Track) => `${location.origin}/?t=${encodeURIComponent(t.handle)}/${encodeURIComponent(t.slug)}`;
 export const artistUrl = (t: Track) => `${PL8}/${t.handle}`;
+/// A link that opens this app on an artist's radio sheet.
+export const appRadioUrl = (handle: string) => `${location.origin}/?r=${encodeURIComponent(handle)}`;
 // Images come through our server, so pl8list never sees the visitor's address.
 export const imgUrl = (id: string | null) => (id ? `/img/${encodeURIComponent(id)}` : null);
 export const artistImg = (t: Track) => imgUrl(t.artist_img);

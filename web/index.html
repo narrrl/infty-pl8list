@@ -65,10 +65,7 @@
     <div class="login-box">
       <h1><svg class="login-mark" aria-hidden="true"><use href="#i-rewind"/></svg>pl8list <b>rewind</b></h1>
       <p class="tagline">endless riddim from pl8list. like it, and it comes back.</p>
-      <div id="guest-start">
-        <button type="button" id="guest-btn" class="primary"><svg><use href="#i-play"/></svg> start listening</button>
-        <p class="or">no account needed. or sign in with pl8list to bring your follows and likes along.</p>
-      </div>
+      <p class="or">sign in with pl8list to bring your follows and likes along. What you did as a guest comes with you.</p>
       <form id="email-form">
         <label for="email">sign in with your pl8list email</label>
         <input id="email" type="email" name="email" autocomplete="email" required placeholder="you@example.com">
@@ -91,11 +88,10 @@
           <button type="button" id="restart" class="link">use another email</button>
         </div>
       </form>
-      <button type="button" id="login-cancel" class="link" hidden>cancel, keep using the app</button>
+      <button type="button" id="login-cancel" class="link">cancel, keep listening</button>
       <p id="login-error" role="alert"></p>
       <p class="fineprint">
-        This site is not affiliated with pl8list. Without an account we keep what you play, like and
-        follow under a random cookie, to pick tracks for you; signing out deletes it. Your email and code
+        This site is not affiliated with pl8list. Your email and code
         go to pl8list, which signs this server in for you. Unless you choose to stay connected, we use
         that pl8list login once to read your feed and library, then log it out; it is never stored. We
         keep your pl8list handle, the artists you follow and what you play and like.
@@ -133,6 +129,12 @@
       <legend>visuals</legend>
       <label><input type="radio" name="visuals" value="liquid"> liquid</label>
       <label><input type="radio" name="visuals" value="simple"> simple</label>
+    </fieldset>
+    <fieldset class="modes" id="flares-setting">
+      <legend>solar flares <small>on the liquid drop</small></legend>
+      <label title="on for riddim, tearout and 140 tracks"><input type="radio" name="flares" value="auto"> auto</label>
+      <label><input type="radio" name="flares" value="on"> on</label>
+      <label><input type="radio" name="flares" value="off"> off</label>
     </fieldset>
     <fieldset class="modes">
       <legend>crossfade</legend>
@@ -199,9 +201,16 @@
   <p id="feed-status" role="status" hidden></p>
 
   <div id="start" hidden>
+    <h1 class="start-logo"><svg aria-hidden="true"><use href="#i-rewind"/></svg>pl8list <b>rewind</b></h1>
     <button type="button" class="start-play" aria-label="start playing"><svg><use href="#i-play"/></svg></button>
     <p class="start-track"></p>
-    <p class="start-hint">tap anywhere to start</p>
+    <p class="start-hint">tap anywhere to start · no account needed</p>
+    <div class="start-welcome">
+      <button type="button" id="start-signin" class="link">or sign in with pl8list</button>
+      <p class="fineprint">Not affiliated with pl8list. Without an account we keep what you play, like and
+        follow under a random cookie, to pick tracks for you; "forget me" in the account menu deletes it.
+        <a href="/datenschutz">Datenschutz / privacy</a> · <a href="/impressum">Impressum</a></p>
+    </div>
   </div>
 
   <button type="button" id="up-next" hidden>
@@ -228,6 +237,7 @@
       <ol id="station-neighbours"></ol>
       <p id="station-exploring" hidden>finding related artists…</p>
       <button type="button" id="station-start" class="primary"><svg><use href="#i-play"/></svg> start radio</button>
+      <button type="button" id="station-share" class="link">share this radio</button>
     </section>
   </div>
 
@@ -260,10 +270,13 @@
         <dt>c</dt><dd>filters and settings</dd>
         <dt>h</dt><dd>history</dd>
         <dt>0–9 · , .</dt><dd>jump to 0–90 % · seek 5 s</dd>
+        <dt>d</dt><dd>jump to the next drop (the marks on the waveform)</dd>
         <dt>m · + −</dt><dd>mute · volume</dd>
         <dt>?</dt><dd>this help</dd>
       </dl>
-      <p>Drag the liquid artwork sideways to spin it. Lock-screen and headphone buttons work too.</p>
+      <p>Drag the liquid artwork sideways to spin it. On riddim the solar flares round it follow the
+        beat: a loop on each kick, the same crown every bar, a break on each snare. Lock-screen and
+        headphone buttons work too.</p>
       <p class="pointer-only fineprint">Keys like r or x doing something else, such as reloading or
         closing the tab? A vim-keys browser extension (Vimium and the like) takes them first:
         turn it off for this site.</p>
@@ -297,7 +310,7 @@
           <canvas class="wave"></canvas>
           <span class="wave-tip"></span>
         </div>
-        <div class="time"><span class="cur">0:00</span><span class="counts"></span><span class="dur"></span></div>
+        <div class="time"><span class="cur">0:00</span><button type="button" class="to-drop" title="jump to the drop (d)">drop <svg><use href="#i-down"/></svg></button><span class="counts"></span><span class="dur"></span></div>
       </div>
       <nav class="actions">
         <button type="button" class="act like" title="like (l)" aria-label="like"><span class="ring"><svg><use href="#i-heart"/></svg></span><span class="n saves"></span></button>

@@ -15,6 +15,8 @@ export interface CardActions {
   canSeek(card: Card): boolean;
   duration(card: Card): number;
   seek(card: Card, seconds: number): void;
+  /// Jump to the next drop of the playing card.
+  toDrop(card: Card): void;
 }
 
 // Uploads are often titled after their file name.
@@ -26,6 +28,39 @@ export const compact = (n: number) =>
 const NEW_DAYS = 7; // uploads younger than this get a "new" chip
 const BAR = 3; // px per waveform bar, gap included
 const MIRROR = 0.28; // share of the waveform's height its reflection takes
+// Drops from the waveform: the level over a short window jumping well above the
+// window before it, and loud. Tuned on riddim and dubstep, where the drop is the
+// loudest, densest part and the build before it thins out.
+const DROP_WINDOW = 0.035; // of the track, on each side of a drop
+const DROP_RISE = 0.22; // the window after is this much louder (0..1 of the peak) …
+const DROP_LOUD = 0.55; // … and at least this loud
+const DROP_SKIP = 0.06; // no drop in the first bit: that is the track starting
+const DROP_APART = 0.12; // of the track between two drops
+const MAX_DROPS = 3;
+
+/// Where the drops are, 0..1 of the track, from its waveform.
+export function findDrops(data: number[] | null | undefined): number[] {
+  if (!data || data.length < 40) return [];
+  const max = Math.max(1, ...data);
+  const v = data.map((x) => x / max);
+  const n = v.length;
+  const w = Math.max(2, Math.round(n * DROP_WINDOW));
+  const sum = [0];
+  for (const x of v) sum.push(sum[sum.length - 1] + x);
+  const mean = (a: number, b: number) => (sum[b] - sum[a]) / (b - a);
+  const cands: { at: number; rise: number }[] = [];
+  for (let i = Math.max(w, Math.round(n * DROP_SKIP)); i <= n - w; i++) {
+    const after = mean(i, i + w), before = mean(i - w, i);
+    if (after - before >= DROP_RISE && after >= DROP_LOUD) cands.push({ at: i, rise: after - before });
+  }
+  cands.sort((a, b) => b.rise - a.rise);
+  const out: number[] = [];
+  for (const c of cands) {
+    if (out.length >= MAX_DROPS) break;
+    if (out.every((o) => Math.abs(o - c.at) >= n * DROP_APART)) out.push(c.at);
+  }
+  return out.sort((a, b) => a - b).map((i) => i / n);
+}
 
 const tpl = document.getElementById("card-tpl") as HTMLTemplateElement;
 
@@ -47,9 +82,12 @@ export class Card {
   ) {
     this.liked = liked;
     this.station = station;
+    this.drops = findDrops(track.waveform);
   }
 
   private station: string | undefined;
+  /// Drops in the waveform, 0..1 of the track.
+  readonly drops: number[];
 
   element(): HTMLElement {
     return this.el ?? this.build();
@@ -131,6 +169,9 @@ export class Card {
     $(".next").addEventListener("click", () => this.actions.next(this));
     $(".follow").addEventListener("click", () => this.actions.follow(this));
     $(".radio").addEventListener("click", () => this.actions.radio(this));
+    const toDrop = $(".to-drop");
+    toDrop.hidden = !this.drops.length;
+    toDrop.addEventListener("click", () => this.actions.toDrop(this));
 
     this.el = el;
     this.canvas = $<HTMLCanvasElement>(".wave");
@@ -243,6 +284,17 @@ export class Card {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+    // A small mark over each drop.
+    for (const d of this.drops) {
+      const x = Math.round(d * bars) * BAR + (BAR - 1) / 2;
+      ctx.fillStyle = d < progress ? accent : "rgba(255,255,255,0.75)";
+      ctx.beginPath();
+      ctx.moveTo(x - 3.5, 0);
+      ctx.lineTo(x + 3.5, 0);
+      ctx.lineTo(x, 5);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   /// Loudness at `progress` from the waveform, 0..1. Stands in for the analyser

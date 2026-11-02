@@ -6,7 +6,7 @@
 // Web Audio, otherwise from the track's waveform at the current position.
 
 import { artistImg } from "./api";
-import { LiquidBlob, SPILL } from "./blob/blob";
+import { type FlareSetting, LiquidBlob, SPILL } from "./blob/blob";
 import { lookFor } from "./blob/style";
 import type { Card } from "./cards";
 import { accentFor, accentForName } from "./color";
@@ -15,9 +15,11 @@ import type { Player } from "./player";
 
 export type VisualsSetting = "liquid" | "simple";
 const VISUALS_KEY = "pl8inf.visuals";
+const FLARES_KEY = "pl8inf.flares";
 const SLOP = 10; // px before a press on the drop turns it
 const REACH = 1.2; // how far past the art's radius the drop can be grabbed
 const IDLE_FPS = 15; // a paused drop keeps breathing, slowly and at a low frame rate
+const BAR_LOCK = 2; // kick strength on the downbeat before the bar counts as known
 
 export class Visualizer {
   private raf = 0;
@@ -28,6 +30,7 @@ export class Visualizer {
   private blob: LiquidBlob | null | undefined;
   private reduced = matchMedia("(prefers-reduced-motion: reduce)");
   private setting: VisualsSetting = localStorage.getItem(VISUALS_KEY) === "simple" ? "simple" : "liquid";
+  private flareSetting: FlareSetting = (["on", "off"] as const).find((v) => v === localStorage.getItem(FLARES_KEY)) ?? "auto";
   private debug: ((f: Features) => void) | null = null;
   private dropDebug: ((text: string) => void) | null = null;
   /// A press on the drop; `on` once it moved enough to turn it.
@@ -73,18 +76,38 @@ export class Visualizer {
     this.attach(this.card, true);
   }
 
+  get flares(): FlareSetting {
+    return this.flareSetting;
+  }
+
+  /// Solar flares round the drop: auto, on or off.
+  set flares(v: FlareSetting) {
+    this.flareSetting = v;
+    localStorage.setItem(FLARES_KEY, v);
+    if (this.blob) this.blob.flareSetting = v;
+  }
+
   /// Whether the liquid drop runs: wanted, motion allowed, and WebGL2 works.
   private liquid(): LiquidBlob | null {
     if (this.setting !== "liquid" || this.reduced.matches || this.blob === null) return null;
     if (this.blob === undefined) {
       this.blob = LiquidBlob.create(this.touch);
       if (this.blob) {
+        this.blob.flareSetting = this.flareSetting;
         // Plain art while the GPU is gone; the drop comes back with it.
         this.blob.onLost = () => this.card?.el?.classList.remove("liquid");
         this.blob.onRestored = () => this.attach(this.card, true);
       }
     }
     return this.blob?.lost ? null : this.blob;
+  }
+
+  /// Seconds until the next bar starts, where the analyser hears the music and the
+  /// bar is locked onto its kicks; null otherwise.
+  secondsToBar(): number | null {
+    const f = this.features.f;
+    if (!this.player.mixing || this.player.audio.paused || f.lock < BAR_LOCK) return null;
+    return (1 - f.bar) * 4 * f.period;
   }
 
   /// A play/pause from a tap was taken back by the second tap of a double-tap.
@@ -100,6 +123,7 @@ export class Visualizer {
       this.card.el?.classList.remove("liquid", "turning");
       this.grab = null;
     }
+    if (this.card !== card) this.features.setTempo(card?.track.bpm ?? null);
     this.card = card;
     const blob = this.liquid();
     const slot = card?.el?.querySelector<HTMLElement>(".art");

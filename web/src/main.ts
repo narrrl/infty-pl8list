@@ -9,6 +9,7 @@ import { Pager } from "./pager";
 import { Player } from "./player";
 import { Sheet } from "./sheet";
 import { Station } from "./station";
+import type { FlareSetting } from "./blob/blob";
 import { type VisualsSetting, Visualizer } from "./visual";
 
 const PREFETCH_AHEAD = 4; // fetch more when this close to the end
@@ -23,6 +24,8 @@ const BPM_RANGE = [60, 200]; // the BPM slider's ends, which mean "no limit"
 const FILTERS_KEY = "pl8inf.filters";
 const MODE_KEY = "pl8inf.mode";
 const HINT_KEY = "pl8inf.hintShown";
+const NUDGE_KEY = "pl8inf.signInNudged";
+const NUDGE_LIKES = 5; // a guest is asked to sign in after this many likes, or a first follow
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -66,6 +69,7 @@ let reported = false; // final event already sent for the active card
 let advanced = false; // already mixed into the next track
 let remembered = false; // the active card is in the history
 let preloadTimer = 0;
+let barTimer = 0; // a long crossfade waiting for the next bar
 let filters: Filters = loadFilters();
 let mode: Mode = loadMode();
 let stats: Stats | null = null;
@@ -124,7 +128,7 @@ async function loadMore(): Promise<void> {
     if (err instanceof api.HttpError && err.status === 401) {
       loading = false;
       signedInUser = null;
-      showLogin();
+      showWelcome();
       return;
     }
     setStatus(`failed to load: ${(err as Error).message}`);
@@ -189,6 +193,8 @@ function activate(idx: number): void {
   reported = false;
   advanced = false;
   remembered = false;
+  clearTimeout(barTimer);
+  barTimer = 0;
   const card = cards[idx];
   if (pager.index !== idx) pager.go(idx, { instant: true });
   card.element().classList.add("current");
@@ -257,7 +263,20 @@ const actions: CardActions = {
   canSeek: (c) => c === current() && !!player.audio.duration,
   duration: (c) => (c === current() && player.audio.duration) || c.track.duration || 0,
   seek: (_, s) => player.seek(s),
+  toDrop: (c) => toDrop(c),
 };
+
+/// Seek to the next drop of the playing card, a bar early so it lands; past the
+/// last one, back to the first.
+function toDrop(card: Card): void {
+  const a = player.audio;
+  if (card !== current() || !a.duration || !card.drops.length) return;
+  const lead = 4 * beatSeconds();
+  const times = card.drops.map((d) => Math.max(0, d * a.duration - lead));
+  const next = times.find((t) => t > a.currentTime + 1) ?? times[0];
+  player.seek(next);
+  toast(`drop ${times.indexOf(next) + 1} of ${times.length}`);
+}
 
 function setLike(card: Card, liked: boolean): void {
   if (card.liked === liked) return;
@@ -265,6 +284,14 @@ function setLike(card: Card, liked: boolean): void {
   card.showLike(true);
   if (stats) { stats.liked += liked ? 1 : -1; showStats(); }
   api.sendEvent(card.track, liked ? "like" : "unlike");
+  if (liked && (stats?.liked ?? 0) >= NUDGE_LIKES) nudgeSignIn();
+}
+
+/// Once per device, a guest who has started collecting is asked to sign in.
+function nudgeSignIn(): void {
+  if (!signedInUser?.guest || localStorage.getItem(NUDGE_KEY)) return;
+  localStorage.setItem(NUDGE_KEY, "1");
+  toast("sign in with pl8list to keep these, and bring your library along", 8000, { label: "sign in", run: () => showLogin() });
 }
 
 function dislike(card: Card): void {
@@ -293,7 +320,8 @@ async function setFollow(card: Card, follow: boolean): Promise<void> {
   update(follow);
   try {
     await api.postJSON("/local/follow", { handle, follow });
-    toast(follow ? `following ${artist_name}` : `unfollowed ${artist_name}`);
+    if (follow && signedInUser?.guest && !localStorage.getItem(NUDGE_KEY)) nudgeSignIn();
+    else toast(follow ? `following ${artist_name}` : `unfollowed ${artist_name}`);
   } catch (err) {
     update(!follow);
     toast((err as Error).message, 4000);
@@ -301,13 +329,17 @@ async function setFollow(card: Card, follow: boolean): Promise<void> {
 }
 
 /// Shares a link that opens this app on the track, with pl8list's own link in the text.
-async function share(card: Card): Promise<void> {
+function share(card: Card): Promise<void> {
   const { track } = card;
-  const url = api.appTrackUrl(track);
   const title = cleanTitle(track.title);
+  return shareLink(api.appTrackUrl(track), title, `${title} by ${track.artist_name} · ${api.trackUrl(track)}`);
+}
+
+/// The share sheet on phones, the clipboard elsewhere.
+async function shareLink(url: string, title: string, text = title): Promise<void> {
   if (navigator.share && isTouch) {
     try {
-      await navigator.share({ title, text: `${title} by ${track.artist_name} · ${api.trackUrl(track)}`, url });
+      await navigator.share({ title, text, url });
     } catch { /* dismissed */ }
     return;
   }
@@ -336,12 +368,43 @@ player.on("timeupdate", () => {
   }
   // Where tracks can be mixed, start the next one so they overlap by the crossfade.
   const lead = Math.max(1, player.crossfade);
-  if (player.mixing && !advanced && !document.hidden && a.duration && a.duration - t < lead && cards[active + 1] && !sleepAtEnd) {
-    advanced = true;
-    if (!reported) { api.sendEvent(cards[active].track, "complete", listened); reported = true; }
-    go(active + 1);
+  const left = a.duration - t;
+  if (player.mixing && !advanced && !document.hidden && a.duration && cards[active + 1] && !sleepAtEnd) {
+    // Long fades start on a bar, like a DJ would bring the next one in; up to a
+    // bar early, never late.
+    const toBar = player.crossfade >= BAR_FADE && !barTimer ? visual.secondsToBar() : null;
+    if (toBar !== null && left - toBar >= lead * 0.75 && left - toBar <= lead + 2 * 4 * beatSeconds()) {
+      const card = current();
+      barTimer = window.setTimeout(() => {
+        barTimer = 0;
+        if (current() === card) mixNext();
+      }, toBar * 1000);
+    } else if (left < lead) mixNext();
+  }
+  // Seeked back from a bar-timed fade: it waits for the end again.
+  if (barTimer && left > lead + 8) {
+    clearTimeout(barTimer);
+    barTimer = 0;
   }
 });
+
+/// Seconds per beat of the playing card.
+function beatSeconds(): number {
+  const bpm = current()?.track.bpm || 140;
+  return 60 / (bpm < 100 ? bpm * 2 : bpm);
+}
+
+/// Long crossfades at least this long start on a bar.
+const BAR_FADE = 4;
+
+function mixNext(): void {
+  clearTimeout(barTimer);
+  barTimer = 0;
+  if (advanced) return;
+  advanced = true;
+  if (!reported) { api.sendEvent(cards[active].track, "complete", listened); reported = true; }
+  go(active + 1);
+}
 
 player.on("ended", () => {
   const card = current();
@@ -510,8 +573,26 @@ function showStart(card: Card): void {
   startEl.querySelector(".start-track")!.textContent = `${cleanTitle(t.title)} · ${t.artist_name}`;
 }
 
+/// A tap on the overlay. Someone new becomes a guest with it: one tap, and it plays.
+async function tapToStart(): Promise<void> {
+  if (signedInUser) {
+    start();
+    return;
+  }
+  if (startEl.classList.contains("busy")) return;
+  startEl.classList.add("busy");
+  try {
+    const { user } = await api.postJSON<{ user: User }>("/auth/guest");
+    signedIn(user);
+    start();
+  } catch (err) {
+    toast((err as Error).message, 4000);
+  }
+  startEl.classList.remove("busy");
+}
+
 function start(): void {
-  if (started) return;
+  if (started || !signedInUser) return;
   started = true;
   startEl.hidden = true;
   player.unlock();
@@ -524,7 +605,12 @@ function start(): void {
                   : "click to pause · double-click to like · ? for shortcuts", 5000);
   }
 }
-startEl.addEventListener("click", start);
+startEl.addEventListener("click", (e) => {
+  // The sign-in link and the legal links are not a tap to start.
+  if ((e.target as Element).closest(".start-welcome")) return;
+  tapToStart();
+});
+$("start-signin").addEventListener("click", () => showLogin());
 
 /// Start playing the current card after `start()`; activate() did not, as nothing played yet.
 function activateAgain(card: Card): void {
@@ -759,11 +845,13 @@ function showSetting(name: string, value: string): void {
 function setVisuals(v: VisualsSetting): void {
   visual.visuals = v;
   showSetting("visuals", v);
+  $("flares-setting").hidden = v !== "liquid";
 }
 
 filtersForm.addEventListener("change", (e) => {
   const input = e.target as HTMLInputElement;
   if (input.name === "visuals") setVisuals(input.value as VisualsSetting);
+  else if (input.name === "flares") visual.flares = input.value as FlareSetting;
   else if (input.name === "crossfade") player.crossfade = Number(input.value);
   else if (input.name === "bass") player.bassBoost = input.checked;
   else if (input.name === "sleep") setSleep(input.value);
@@ -777,6 +865,8 @@ $("filters-clear").addEventListener("click", () => {
 
 function showSettings(): void {
   showSetting("visuals", visual.visuals);
+  showSetting("flares", visual.flares);
+  $("flares-setting").hidden = visual.visuals !== "liquid";
   // A saved crossfade that is not one of the choices shows as the nearest one.
   const fades = [...filtersForm.querySelectorAll<HTMLInputElement>("input[name=crossfade]")].map((i) => Number(i.value));
   const fade = fades.reduce((a, b) => (Math.abs(b - player.crossfade) < Math.abs(a - player.crossfade) ? b : a));
@@ -900,7 +990,7 @@ const station = new Station((m) => {
   if (!started) start();
   jumpOnLoad = true;
   setMode(m);
-});
+}, (url, title) => shareLink(url, title));
 
 /// On the last card of a radio that has played everything known around its artist.
 function updateRadioEnd(): void {
@@ -938,7 +1028,7 @@ document.addEventListener("keydown", (e) => {
   if (k === "?") { sheets.help.toggle(); return; }
   if (station.isOpen || Sheet.current || !loginEl.hidden) return;
   if (!started) {
-    if (k !== "Tab" && k !== "Shift") { e.preventDefault(); start(); }
+    if (k !== "Tab" && k !== "Shift") { e.preventDefault(); tapToStart(); }
     return;
   }
   const card = current();
@@ -951,6 +1041,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === ".") player.seek(a.currentTime + 5);
   else if (k === ",") player.seek(a.currentTime - 5);
   else if (/^[0-9]$/.test(k) && a.duration) player.seek((Number(k) / 10) * a.duration);
+  else if (k === "d" && card) toDrop(card);
   else if (k === "l" && card) setLike(card, !card.liked);
   else if (k === "f" && card) setFollow(card, !card.track.followed);
   else if (k === "r" && card) actions.radio(card);
@@ -997,28 +1088,24 @@ function showLogin({ resync = false } = {}): void {
   loginEl.hidden = false;
   emailForm.hidden = false;
   codeForm.hidden = true;
-  // Someone already listening is here only to sign in with pl8list.
-  guestStart.hidden = !!signedInUser;
-  loginCancel.hidden = !signedInUser;
   loginError.textContent = resync ? "sign in with pl8list again to sync your library" : "";
-  if (signedInUser) $("email").focus();
+  $("email").focus();
 }
 
-loginCancel.addEventListener("click", () => { if (signedInUser) signedIn(signedInUser); });
+/// Nobody signed in on this device: the overlay welcomes them, and one tap plays.
+function showWelcome(): void {
+  Sheet.closeAll();
+  loginEl.hidden = true;
+  $("bar").hidden = true;
+  upNext.hidden = true;
+  started = false;
+  player.pause();
+  startEl.classList.add("welcome");
+  startEl.querySelector(".start-track")!.textContent = "endless riddim from pl8list. like it, and it comes back.";
+  startEl.hidden = false;
+}
 
-const guestStart = $("guest-start");
-$("guest-btn").addEventListener("click", async (e) => {
-  const btn = e.currentTarget as HTMLButtonElement;
-  btn.disabled = true;
-  loginError.textContent = "";
-  try {
-    const { user } = await api.postJSON<{ user: User }>("/auth/guest");
-    signedIn(user);
-  } catch (err) {
-    loginError.textContent = (err as Error).message;
-  }
-  btn.disabled = false;
-});
+loginCancel.addEventListener("click", () => { if (signedInUser) signedIn(signedInUser); else showWelcome(); });
 
 async function withForm(form: HTMLFormElement, fn: () => Promise<void>): Promise<void> {
   const buttons = form.querySelectorAll("button");
@@ -1119,10 +1206,28 @@ disconnectBtn.addEventListener("click", async () => {
   }
 });
 
+/// A guest's sign-out deletes everything they did: it takes a second tap.
+let forgetArmed = false;
+let forgetTimer = 0;
+
 for (const [id, url] of [["logout-btn", "/auth/logout"], ["logout-all-btn", "/account/logout-all"]]) {
-  $(id).addEventListener("click", async () => {
+  $(id).addEventListener("click", async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    if (id === "logout-btn" && signedInUser?.guest && !forgetArmed) {
+      forgetArmed = true;
+      btn.textContent = "tap again: delete your likes, follows and history here";
+      btn.classList.add("danger");
+      clearTimeout(forgetTimer);
+      forgetTimer = window.setTimeout(() => {
+        forgetArmed = false;
+        btn.textContent = "forget me";
+        btn.classList.remove("danger");
+      }, 5000);
+      return;
+    }
     try {
       await api.postJSON(url);
+      localStorage.removeItem(NUDGE_KEY);
       location.reload();
     } catch (err) {
       toast((err as Error).message, 4000);
@@ -1140,7 +1245,7 @@ deleteForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
     await api.postJSON("/account/delete", { confirm: deleteConfirm.value.trim() });
-    for (const key of [FILTERS_KEY, MODE_KEY, HINT_KEY]) localStorage.removeItem(key);
+    for (const key of [FILTERS_KEY, MODE_KEY, HINT_KEY, NUDGE_KEY]) localStorage.removeItem(key);
     heard.clear();
     location.reload();
   } catch (err) {
@@ -1154,15 +1259,18 @@ function signedIn(user: User, pl8list?: Pl8Status): void {
   showSync(pl8list);
   loginEl.hidden = true;
   $("bar").hidden = false;
-  accountBtn.textContent = guest ? "?" : (user.name || user.handle)[0]?.toUpperCase() ?? "?";
-  accountBtn.style.backgroundColor = guest ? "#ffffff30" : accentForName(user.handle);
-  accountBtn.title = guest ? "guest" : `@${user.handle}`;
+  startEl.classList.remove("welcome");
+  accountBtn.textContent = guest ? "sign in" : (user.name || user.handle)[0]?.toUpperCase() ?? "?";
+  accountBtn.classList.toggle("guest", guest);
+  accountBtn.style.backgroundColor = guest ? "var(--glass-strong)" : accentForName(user.handle);
+  accountBtn.title = guest ? "listening as a guest: sign in, or forget me" : `@${user.handle}`;
   $("account-handle").textContent = guest ? "listening as a guest" : `@${user.handle}`;
   $("delete-handle").textContent = user.handle;
   // A guest has one session and nothing on pl8list: signing out forgets them.
   $("sync-title").textContent = guest ? "pl8list" : "pl8list sync";
   $("sync-btn").textContent = guest ? "sign in with pl8list" : "resync with pl8list";
-  $("logout-btn").textContent = guest ? "sign out and forget me" : "sign out";
+  $("logout-btn").textContent = guest ? "forget me" : "sign out";
+  forgetArmed = false;
   for (const id of ["logout-all-btn", "delete-open"]) $(id).hidden = guest;
   // Typing the login code counts as a user gesture, so playback may start right away.
   if (navigator.userActivation?.hasBeenActive) start();
@@ -1171,7 +1279,16 @@ function signedIn(user: User, pl8list?: Pl8Status): void {
 }
 
 /// `/?t=handle/slug` opens on that track; the feed carries on after it.
+/// `/?r=handle` opens that artist's radio sheet over the feed.
 async function openLinkOrFeed(): Promise<void> {
+  const radio = new URLSearchParams(location.search).get("r");
+  if (radio) {
+    history.replaceState(null, "", location.pathname);
+    api.artist(radio).then(
+      ({ artist }) => station.open(artist.handle, artist.name, api.imgUrl(artist.img)),
+      (err) => toast(`couldn't open that radio: ${(err as Error).message}`, 4000),
+    );
+  }
   const link = new URLSearchParams(location.search).get("t")?.split("/");
   if (link?.length === 2) {
     history.replaceState(null, "", location.pathname);
@@ -1187,5 +1304,5 @@ async function openLinkOrFeed(): Promise<void> {
 
 api.me().then(
   (me) => signedIn(me.user, me.pl8list),
-  () => showLogin(),
+  () => showWelcome(),
 );

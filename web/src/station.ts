@@ -36,7 +36,13 @@ export class Station {
   private timer = 0;
   private known = new Set<string>();
 
-  constructor(private start: (m: Mode) => void) {
+  constructor(
+    private start: (m: Mode) => void,
+    share: (url: string, title: string) => void,
+  ) {
+    $("station-share").addEventListener("click", () => {
+      if (this.shown) share(api.appRadioUrl(this.shown.handle), `${this.shown.name} radio`);
+    });
     $("station-close").addEventListener("click", () => this.close());
     this.root.addEventListener("click", (e) => { if (e.target === this.root) this.close(); });
     this.backBtn.addEventListener("click", () => {
