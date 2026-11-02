@@ -850,7 +850,7 @@ body.zen #up-next { display: none; }
   box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 60%, transparent);
   animation: beckon 1.8s ease-out infinite;
 }
-.start-play svg { width: 2.6rem; height: 2.6rem; margin-left: 0.3rem; }
+.start-play svg { width: 2.6rem; height: 2.6rem; }
 @keyframes beckon { to { box-shadow: 0 0 0 2rem transparent; } }
 .start-track { margin: 0.4rem 0 0; font-weight: 700; font-size: 1.1rem; text-align: center; padding: 0 1rem; }
 .start-hint { margin: 0; color: var(--muted); font-size: 0.85rem; }
