@@ -524,6 +524,12 @@ pub struct User {
 }
 
 impl User {
+    /// Listening without a pl8list account. Guests get negative ids, so they never
+    /// meet a pl8list user id.
+    pub fn is_guest(&self) -> bool {
+        self.id < 0
+    }
+
     fn from_row(r: &Row) -> rusqlite::Result<Self> {
         Ok(User {
             id: r.get("id")?,
@@ -545,6 +551,32 @@ pub fn upsert_user(conn: &Connection, id: i64, handle: &str, name: Option<&str>,
         params![id, handle, name, img, now, now],
     )?;
     Ok(())
+}
+
+pub const GUEST_HANDLE: &str = "guest";
+
+/// A new guest and a session for them. Returns the guest and the raw token.
+pub fn create_guest(conn: &Connection) -> rusqlite::Result<(User, String)> {
+    let id = -((rand::rng().next_u64() >> 1) as i64).max(1);
+    upsert_user(conn, id, GUEST_HANDLE, None, None)?;
+    let token = create_session(conn, id)?;
+    let user = conn.query_row("SELECT * FROM users WHERE id=?", [id], User::from_row)?;
+    Ok((user, token))
+}
+
+/// A guest signed in with pl8list: what they played, liked and followed moves to
+/// the account, and the guest is gone.
+pub fn merge_guest(conn: &mut Connection, guest_id: i64, user_id: i64) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute("UPDATE events SET user_id=? WHERE user_id=?", params![user_id, guest_id])?;
+    tx.execute(
+        "INSERT OR IGNORE INTO follows (user_id, handle, source, ts) SELECT ?, handle, source, ts FROM follows WHERE user_id=?",
+        params![user_id, guest_id],
+    )?;
+    tx.execute("DELETE FROM follows WHERE user_id=?", [guest_id])?;
+    tx.execute("DELETE FROM sessions WHERE user_id=?", [guest_id])?;
+    tx.execute("DELETE FROM users WHERE id=?", [guest_id])?;
+    tx.commit()
 }
 
 pub fn hash_token(token: &str) -> String {
@@ -760,15 +792,23 @@ pub fn delete_user(conn: &mut Connection, user_id: i64) -> rusqlite::Result<()> 
     tx.commit()
 }
 
-/// Drop expired sessions and old "served" events. Returns (sessions, events) removed.
-pub fn purge(conn: &Connection) -> rusqlite::Result<(usize, usize)> {
+/// Drop expired sessions, old "served" events and guests whose session is gone
+/// (nobody can come back as them). Returns (sessions, events, guests) removed.
+pub fn purge(conn: &mut Connection) -> rusqlite::Result<(usize, usize, usize)> {
     let now = now();
     let s = conn.execute("DELETE FROM sessions WHERE expires_at <= ?", [now])?;
     let e = conn.execute(
         "DELETE FROM events WHERE kind='served' AND ts < ?",
         [now - SERVED_RETENTION_DAYS * 86400.0],
     )?;
-    Ok((s, e))
+    let gone: Vec<i64> = conn
+        .prepare("SELECT id FROM users WHERE id < 0 AND NOT EXISTS (SELECT 1 FROM sessions WHERE user_id = users.id)")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    for &id in &gone {
+        delete_user(conn, id)?;
+    }
+    Ok((s, e, gone.len()))
 }
 
 #[cfg(test)]

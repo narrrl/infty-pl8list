@@ -1000,6 +1000,11 @@ button.primary:disabled { opacity: 0.35; cursor: default; }
 }
 #code { font-family: ui-monospace, monospace; font-size: 1.4rem; letter-spacing: 0.5em; text-align: center; }
 .login-box button[type=submit] { background: var(--accent); border: none; color: #fff; padding: 0.7em; font-weight: 600; }
+/* Listening without an account comes first; signing in is the quieter way below. */
+#guest-start { display: flex; flex-direction: column; gap: 0.6rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--line); }
+#guest-btn { width: 100%; font-size: 1.05rem; padding: 0.8em; }
+#guest-start .or { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.85rem; text-align: center; }
+#guest-start:not([hidden]) ~ #email-form button[type=submit] { background: none; border: 1px solid var(--line-strong); color: var(--fg); }
 .login-box button[disabled] { opacity: 0.6; cursor: wait; }
 .login-links { display: flex; justify-content: space-between; }
 .login-box label.check { display: flex; gap: 0.6rem; align-items: flex-start; color: var(--fg); cursor: pointer; }

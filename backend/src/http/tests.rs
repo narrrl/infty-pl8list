@@ -506,3 +506,73 @@ async fn artist_sheet_and_radio_reasons() {
     assert_eq!(why[&2], serde_json::json!({ "kind": "related" }));
     assert_eq!(why[&3], serde_json::json!({ "kind": "via", "handle": "b", "name": "B" }));
 }
+
+#[tokio::test]
+async fn guests_listen_and_keep_it_all_when_they_sign_in() {
+    let pl8 = fake_pl8list(1).await;
+    let (r, app, _) = setup("guest", &pl8.uri()).await;
+    let res = r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.20")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let guest = cookie_pair(&set_cookies(&res), "__Host-pl8inf");
+    assert_eq!(json_body(res).await["user"]["guest"], true);
+    let me = json_body(r.clone().oneshot(req("GET", "/local/me", None, Some(&guest), "203.0.113.20")).await.unwrap()).await;
+    assert_eq!(me["user"]["guest"], true);
+    for (uri, body) in [("/local/event", r#"{"track_id":7,"kind":"like"}"#), ("/local/follow", r#"{"handle":"motus","follow":true}"#)] {
+        let res = r.clone().oneshot(req("POST", uri, Some(body), Some(&guest), "203.0.113.20")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{uri}");
+    }
+
+    // Signing in on the same device takes the guest's likes and follows along.
+    let res = r.clone().oneshot(req("POST", "/auth/start", Some(r#"{"email":"a@b.de"}"#), None, "203.0.113.20")).await.unwrap();
+    let login = cookie_pair(&set_cookies(&res), "__Host-pl8inf_login");
+    let both = format!("{login}; {guest}");
+    let res = r.clone().oneshot(req("POST", "/auth/verify", Some(r#"{"code":"123456"}"#), Some(&both), "203.0.113.20")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let (likes, follows, guests) = app
+        .db
+        .call(|c| {
+            c.query_row(
+                "SELECT (SELECT COUNT(*) FROM events WHERE user_id=42 AND kind='like' AND track_id=7), \
+                 (SELECT COUNT(*) FROM follows WHERE user_id=42 AND handle='motus'), (SELECT COUNT(*) FROM users WHERE id < 0)",
+                [],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+            )
+        })
+        .await
+        .unwrap();
+    assert_eq!((likes, follows, guests), (1, 1, 0));
+    let res = r.clone().oneshot(req("GET", "/local/me", None, Some(&guest), "203.0.113.20")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    // The one sync after signing in logs the pl8list session out in the background.
+    assert!(wait_for(&pl8, |q| q.url.path() == "/logout").await);
+}
+
+#[tokio::test]
+async fn guests_leave_nothing_behind_and_are_capped_per_ip() {
+    let (r, app, _) = setup("guest-gone", "http://127.0.0.1:9").await;
+    let res = r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.21")).await.unwrap();
+    let guest = cookie_pair(&set_cookies(&res), "__Host-pl8inf");
+    // A device with a session gets no second guest.
+    let res = r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), Some(&guest), "203.0.113.21")).await.unwrap();
+    assert!(set_cookies(&res).is_empty());
+    let res = r.clone().oneshot(req("POST", "/local/event", Some(r#"{"track_id":7,"kind":"like"}"#), Some(&guest), "203.0.113.21")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = r.clone().oneshot(req("POST", "/auth/logout", Some("{}"), Some(&guest), "203.0.113.21")).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let count = "SELECT (SELECT COUNT(*) FROM users) + (SELECT COUNT(*) FROM sessions) + (SELECT COUNT(*) FROM events)";
+    assert_eq!(app.db.call(move |c| c.query_row(count, [], |r| r.get::<_, i64>(0))).await.unwrap(), 0);
+
+    // A guest whose session ran out is purged with what they did.
+    let res = r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.21")).await.unwrap();
+    let guest = cookie_pair(&set_cookies(&res), "__Host-pl8inf");
+    r.clone().oneshot(req("POST", "/local/event", Some(r#"{"track_id":7,"kind":"play"}"#), Some(&guest), "203.0.113.21")).await.unwrap();
+    app.db.call(|c| c.execute("UPDATE sessions SET expires_at=0", [])).await.unwrap();
+    app.purge().await;
+    assert_eq!(app.db.call(move |c| c.query_row(count, [], |r| r.get::<_, i64>(0))).await.unwrap(), 0);
+
+    let mut statuses = vec![];
+    for _ in 0..10 {
+        statuses.push(r.clone().oneshot(req("POST", "/auth/guest", Some("{}"), None, "203.0.113.21")).await.unwrap().status());
+    }
+    assert_eq!(statuses.iter().filter(|s| **s == StatusCode::TOO_MANY_REQUESTS).count(), 2);
+}

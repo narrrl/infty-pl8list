@@ -61,6 +61,8 @@ export interface Stats {
 export interface User {
   handle: string;
   name: string | null;
+  /// Listening without a pl8list account.
+  guest?: boolean;
 }
 
 export interface Pl8Status {

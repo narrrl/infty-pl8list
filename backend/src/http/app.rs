@@ -23,7 +23,7 @@ pub async fn me(Extension(current): Extension<CurrentUser>) -> Response {
         Some(u) => (
             no_store(),
             Json(json!({
-                "user": { "handle": u.handle, "name": u.name, "img": u.img },
+                "user": { "handle": u.handle, "name": u.name, "img": u.img, "guest": u.is_guest() },
                 "pl8list": { "connected": current.link.is_some(), "synced_at": current.synced_at },
             })),
         )

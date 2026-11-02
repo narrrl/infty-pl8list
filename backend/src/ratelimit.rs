@@ -34,6 +34,13 @@ impl RateLimiter {
         q.push_back(now);
         true
     }
+
+    /// Forget keys with no hits left in the window.
+    pub fn prune(&self) {
+        let now = Instant::now();
+        let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
+        hits.retain(|_, q| q.back().is_some_and(|t| now.duration_since(*t) < self.window));
+    }
 }
 
 #[cfg(test)]

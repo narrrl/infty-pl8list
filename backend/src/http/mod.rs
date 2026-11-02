@@ -54,6 +54,8 @@ pub struct Limits {
     pub pl8_writes: RateLimiter,
     /// The resync button.
     pub resync: RateLimiter,
+    /// Guests made per IP: each is a row in the database.
+    pub guests: RateLimiter,
 }
 
 pub struct App {
@@ -87,6 +89,7 @@ impl App {
                 proxy: RateLimiter::new(1200, 60),
                 pl8_writes: RateLimiter::new(60, 600),
                 resync: RateLimiter::new(1, 120),
+                guests: RateLimiter::new(10, 3600),
             },
             logins: auth::PendingLogins::default(),
             segments: proxy::SegmentKeys::default(),
@@ -102,13 +105,14 @@ impl App {
 
     /// Hourly housekeeping.
     pub async fn purge(&self) {
-        match self.db.call(|c| db::purge(c)).await {
-            Ok((s, e)) if s + e > 0 => tracing::info!("purged {s} expired sessions, {e} old served events"),
+        match self.db.call(db::purge).await {
+            Ok((s, e, g)) if s + e + g > 0 => tracing::info!("purged {s} expired sessions, {e} old served events, {g} gone guests"),
             Ok(_) => {}
             Err(e) => tracing::warn!("purge failed: {e:#}"),
         }
         self.logins.prune();
         self.segments.prune();
+        self.limits.guests.prune();
     }
 
     /// This device's stored pl8list session, if it stays connected. A blob that no
@@ -319,6 +323,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/auth/resend", post(auth::resend))
         .route("/auth/verify", post(auth::verify))
         .route("/auth/logout", post(auth::logout))
+        .route("/auth/guest", post(auth::guest))
         .route("/local/me", get(app::me))
         .route("/local/feed", get(app::feed))
         .route("/local/likes", get(app::likes))

@@ -65,6 +65,10 @@
     <div class="login-box">
       <h1><svg class="login-mark" aria-hidden="true"><use href="#i-rewind"/></svg>pl8list <b>rewind</b></h1>
       <p class="tagline">endless riddim from pl8list. like it, and it comes back.</p>
+      <div id="guest-start">
+        <button type="button" id="guest-btn" class="primary"><svg><use href="#i-play"/></svg> start listening</button>
+        <p class="or">no account needed. or sign in with pl8list to bring your follows and likes along.</p>
+      </div>
       <form id="email-form">
         <label for="email">sign in with your pl8list email</label>
         <input id="email" type="email" name="email" autocomplete="email" required placeholder="you@example.com">
@@ -90,11 +94,11 @@
       <button type="button" id="login-cancel" class="link" hidden>cancel, keep using the app</button>
       <p id="login-error" role="alert"></p>
       <p class="fineprint">
-        No account? <a href="https://pl8list.com/signup" target="_blank" rel="noopener">sign up on pl8list</a>.
-        This site is not affiliated with pl8list. Your email and code go to pl8list, which signs this
-        server in for you. Unless you choose to stay connected, we use that pl8list login once to read
-        your feed and library, then log it out; it is never stored. We keep your pl8list handle, the
-        artists you follow and what you play and like, to pick tracks for you.
+        This site is not affiliated with pl8list. Without an account we keep what you play, like and
+        follow under a random cookie, to pick tracks for you; signing out deletes it. Your email and code
+        go to pl8list, which signs this server in for you. Unless you choose to stay connected, we use
+        that pl8list login once to read your feed and library, then log it out; it is never stored. We
+        keep your pl8list handle, the artists you follow and what you play and like.
       </p>
       <p class="fineprint legal-links">
         <a href="/datenschutz">Datenschutz / privacy</a> · <a href="/impressum">Impressum</a>

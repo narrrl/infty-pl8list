@@ -123,6 +123,7 @@ async function loadMore(): Promise<void> {
     if (gen !== feedGen) return;
     if (err instanceof api.HttpError && err.status === 401) {
       loading = false;
+      signedInUser = null;
       showLogin();
       return;
     }
@@ -996,12 +997,28 @@ function showLogin({ resync = false } = {}): void {
   loginEl.hidden = false;
   emailForm.hidden = false;
   codeForm.hidden = true;
-  loginCancel.hidden = !resync;
+  // Someone already listening is here only to sign in with pl8list.
+  guestStart.hidden = !!signedInUser;
+  loginCancel.hidden = !signedInUser;
   loginError.textContent = resync ? "sign in with pl8list again to sync your library" : "";
-  $("email").focus();
+  if (signedInUser) $("email").focus();
 }
 
 loginCancel.addEventListener("click", () => { if (signedInUser) signedIn(signedInUser); });
+
+const guestStart = $("guest-start");
+$("guest-btn").addEventListener("click", async (e) => {
+  const btn = e.currentTarget as HTMLButtonElement;
+  btn.disabled = true;
+  loginError.textContent = "";
+  try {
+    const { user } = await api.postJSON<{ user: User }>("/auth/guest");
+    signedIn(user);
+  } catch (err) {
+    loginError.textContent = (err as Error).message;
+  }
+  btn.disabled = false;
+});
 
 async function withForm(form: HTMLFormElement, fn: () => Promise<void>): Promise<void> {
   const buttons = form.querySelectorAll("button");
@@ -1062,7 +1079,10 @@ const disconnectBtn = $("disconnect-btn");
 function showSync(s: Pl8Status | undefined): void {
   const connected = !!s?.connected;
   syncStatus.classList.toggle("on", connected);
-  syncStatus.textContent = connected
+  syncStatus.textContent = signedInUser?.guest
+    ? "listening as a guest on this device. Sign in with pl8list to bring your follows and likes " +
+      "along; what you did here comes with you."
+    : connected
     ? `connected on this device${s?.synced_at ? `, last sync ${ago(s.synced_at)}` : ""}. ` +
       "Likes and follows are saved to your pl8list library."
     : "not connected. Resync signs you in with pl8list once to read your feed and library.";
@@ -1075,6 +1095,10 @@ sheets.account.onOpen = async () => {
 };
 
 $("sync-btn").addEventListener("click", async () => {
+  if (signedInUser?.guest) {
+    showLogin();
+    return;
+  }
   try {
     await api.postJSON("/account/pl8list/sync");
     toast("syncing with pl8list…");
@@ -1126,14 +1150,20 @@ deleteForm.addEventListener("submit", async (e) => {
 
 function signedIn(user: User, pl8list?: Pl8Status): void {
   signedInUser = user;
-  if (pl8list) showSync(pl8list);
+  const guest = !!user.guest;
+  showSync(pl8list);
   loginEl.hidden = true;
   $("bar").hidden = false;
-  accountBtn.textContent = (user.name || user.handle)[0]?.toUpperCase() ?? "?";
-  accountBtn.style.backgroundColor = accentForName(user.handle);
-  accountBtn.title = `@${user.handle}`;
-  $("account-handle").textContent = `@${user.handle}`;
+  accountBtn.textContent = guest ? "?" : (user.name || user.handle)[0]?.toUpperCase() ?? "?";
+  accountBtn.style.backgroundColor = guest ? "#ffffff30" : accentForName(user.handle);
+  accountBtn.title = guest ? "guest" : `@${user.handle}`;
+  $("account-handle").textContent = guest ? "listening as a guest" : `@${user.handle}`;
   $("delete-handle").textContent = user.handle;
+  // A guest has one session and nothing on pl8list: signing out forgets them.
+  $("sync-title").textContent = guest ? "pl8list" : "pl8list sync";
+  $("sync-btn").textContent = guest ? "sign in with pl8list" : "resync with pl8list";
+  $("logout-btn").textContent = guest ? "sign out and forget me" : "sign out";
+  for (const id of ["logout-all-btn", "delete-open"]) $(id).hidden = guest;
   // Typing the login code counts as a user gesture, so playback may start right away.
   if (navigator.userActivation?.hasBeenActive) start();
   else if (!started) startEl.hidden = false;

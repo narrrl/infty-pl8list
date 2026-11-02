@@ -162,6 +162,8 @@ pub async fn verify(State(app): St, Extension(current): Extension<CurrentUser>, 
     if let Some(old) = app.connected(&current).await {
         app.pl8.logout(&old.1).await;
     }
+    // A guest signing in keeps what they played, liked and followed.
+    let guest = current.user.as_ref().filter(|g| g.is_guest()).map(|g| g.id);
     let token = app
         .db
         .call(move |c| {
@@ -169,6 +171,9 @@ pub async fn verify(State(app): St, Extension(current): Extension<CurrentUser>, 
                 db::delete_session(c, &t)?;
             }
             db::upsert_user(c, u.id, &u.handle, u.name.as_deref(), u.img.as_deref())?;
+            if let Some(g) = guest {
+                db::merge_guest(c, g, u.id)?;
+            }
             db::create_session(c, u.id)
         })
         .await?;
@@ -189,11 +194,36 @@ pub async fn verify(State(app): St, Extension(current): Extension<CurrentUser>, 
     Ok(res)
 }
 
+/// Listen without a pl8list account: a guest with a session of their own. A device
+/// that already has a session keeps it.
+pub async fn guest(State(app): St, Extension(current): Extension<CurrentUser>, peer: Peer, headers: HeaderMap) -> Res {
+    let user = match current.user {
+        Some(u) => u,
+        None => {
+            if !app.limits.guests.allow(&client_ip(&app, &headers, peer.0)) {
+                return Ok(json_error(StatusCode::TOO_MANY_REQUESTS, TOO_MANY));
+            }
+            let (user, token) = app.db.call(|c| db::create_guest(c)).await?;
+            let mut res = (no_store(), Json(guest_body(&user))).into_response();
+            res.headers_mut().append(header::SET_COOKIE, app.cookies.set(SESSION_COOKIE, &token, (db::SESSION_IDLE_DAYS * 86400.0) as i64));
+            return Ok(res);
+        }
+    };
+    Ok((no_store(), Json(guest_body(&user))).into_response())
+}
+
+fn guest_body(u: &db::User) -> Value {
+    json!({ "user": { "handle": u.handle, "name": u.name, "img": u.img, "guest": u.is_guest() } })
+}
+
 pub async fn logout(State(app): St, Extension(current): Extension<CurrentUser>) -> Res {
     if let Some((_, session)) = app.connected(&current).await {
         app.pl8.logout(&session).await;
     }
-    if let Some(token) = current.token {
+    // Nobody can sign back in as a guest: their data goes with the session.
+    if let Some(g) = current.user.filter(|u| u.is_guest()) {
+        app.db.call(move |c| db::delete_user(c, g.id)).await?;
+    } else if let Some(token) = current.token {
         app.db.call(move |c| db::delete_session(c, &token)).await?;
     }
     Ok(signed_out(&app, json!({ "ok": true })))
