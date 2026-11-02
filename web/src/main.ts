@@ -25,7 +25,11 @@ const FILTERS_KEY = "pl8inf.filters";
 const MODE_KEY = "pl8inf.mode";
 const HINT_KEY = "pl8inf.hintShown";
 const NUDGE_KEY = "pl8inf.signInNudged";
+const COMMENTS_KEY = "pl8inf.waveComments";
 const NUDGE_LIKES = 5; // a guest is asked to sign in after this many likes, or a first follow
+/// Timed comments on the waveform, on unless turned off.
+let waveComments = localStorage.getItem(COMMENTS_KEY) !== "0";
+document.body.classList.toggle("no-wave-comments", !waveComments);
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -199,6 +203,7 @@ function activate(idx: number): void {
   if (pager.index !== idx) pager.go(idx, { instant: true });
   card.element().classList.add("current");
   visual.attach(card);
+  if (waveComments) card.loadComments();
   if (started) play(card.track);
   else showStart(card);
   clearTimeout(preloadTimer);
@@ -361,6 +366,7 @@ player.on("timeupdate", () => {
   lastTime = t;
   const card = current();
   card?.setTime(t);
+  card?.commentsAt(t);
   updatePosition();
   if (card && !remembered && listened >= HISTORY_AFTER) {
     remembered = true;
@@ -842,6 +848,13 @@ function showSetting(name: string, value: string): void {
   for (const input of filtersForm.querySelectorAll<HTMLInputElement>(`input[name=${name}]`)) input.checked = input.value === value;
 }
 
+function setWaveComments(on: boolean): void {
+  waveComments = on;
+  localStorage.setItem(COMMENTS_KEY, on ? "1" : "0");
+  document.body.classList.toggle("no-wave-comments", !on);
+  if (on) current()?.loadComments();
+}
+
 function setVisuals(v: VisualsSetting): void {
   visual.visuals = v;
   showSetting("visuals", v);
@@ -854,6 +867,7 @@ filtersForm.addEventListener("change", (e) => {
   else if (input.name === "spikes") visual.spikes = input.value as SpikeSetting;
   else if (input.name === "crossfade") player.crossfade = Number(input.value);
   else if (input.name === "bass") player.bassBoost = input.checked;
+  else if (input.name === "comments") setWaveComments(input.checked);
   else if (input.name === "sleep") setSleep(input.value);
 });
 filtersForm.addEventListener("submit", (e) => { e.preventDefault(); applyFilters(); });
@@ -874,6 +888,7 @@ function showSettings(): void {
   const bass = filtersForm.elements.namedItem("bass") as HTMLInputElement;
   bass.checked = player.bassBoost;
   bass.closest("label")!.hidden = !player.canMix;
+  (filtersForm.elements.namedItem("comments") as HTMLInputElement).checked = waveComments;
   showSleep();
 }
 sheets.filters.onOpen = showSettings;

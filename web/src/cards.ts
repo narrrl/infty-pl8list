@@ -1,8 +1,9 @@
 // One card per track. Elements are built when a card first comes near the screen
 // and dropped again once it is far behind, so a long session stays light.
 
-import { type Track, artistImg, artistUrl, trackUrl } from "./api";
+import { type Track, artistImg, artistUrl, comments, trackUrl } from "./api";
 import { accentFor, accentForName, backdrop } from "./color";
+import { WaveComments } from "./comments";
 
 export interface CardActions {
   like(card: Card): void;
@@ -88,6 +89,27 @@ export class Card {
   private station: string | undefined;
   /// Drops in the waveform, 0..1 of the track.
   readonly drops: number[];
+  /// Its timed comments, once asked for.
+  private comments: WaveComments | null = null;
+  private commentsAsked = false;
+
+  /// Fetch the timed comments, once. Previews have none: their moments are those
+  /// of the full track.
+  loadComments(): void {
+    if (this.commentsAsked || this.track.preview || !this.track.comments) return;
+    this.commentsAsked = true;
+    comments(this.track.id).then(({ comments: list }) => {
+      if (!list.length) return;
+      this.comments = new WaveComments(list, () => this.actions.duration(this));
+      const wrap = this.canvas?.parentElement;
+      if (wrap) this.comments.mount(wrap);
+    }, () => { this.commentsAsked = false; });
+  }
+
+  /// Playback of this card is at `seconds`.
+  commentsAt(seconds: number): void {
+    this.comments?.tick(seconds);
+  }
 
   element(): HTMLElement {
     return this.el ?? this.build();
@@ -96,6 +118,7 @@ export class Card {
   /// Forget the element; it is built again if the card comes back.
   release(): void {
     this.el?.remove();
+    this.comments?.unmount();
     this.el = this.canvas = null;
     this.drawn = "";
   }
@@ -176,6 +199,7 @@ export class Card {
     this.el = el;
     this.canvas = $<HTMLCanvasElement>(".wave");
     this.bindWaveform();
+    this.comments?.mount(this.canvas.parentElement!);
     this.showLike();
     this.showFollow();
     requestAnimationFrame(() => this.drawWave(this.lastProgress, true));
@@ -321,7 +345,10 @@ export class Card {
       tip.textContent = fmtTime(f * this.actions.duration(this));
       tip.style.left = `${f * 100}%`;
     };
+    const peek = (e: PointerEvent | null) =>
+      this.comments?.peek(e && !this.dragging && e.pointerType === "mouse" ? fraction(e) : null, canvas.clientWidth);
     canvas.addEventListener("pointerdown", (e) => {
+      peek(null);
       if (!this.actions.canSeek(this)) return;
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
@@ -331,6 +358,7 @@ export class Card {
       this.drawWave(fraction(e), true);
     });
     canvas.addEventListener("pointermove", (e) => {
+      peek(e);
       if (this.dragging) this.drawWave(fraction(e), true);
       if (this.dragging || e.pointerType === "mouse") {
         wrap.classList.add("hover");
@@ -346,6 +374,7 @@ export class Card {
     canvas.addEventListener("pointerup", finish);
     canvas.addEventListener("pointercancel", finish);
     canvas.addEventListener("pointerleave", () => {
+      peek(null);
       if (!this.dragging) wrap.classList.remove("hover");
     });
   }

@@ -130,6 +130,20 @@ export const artist = (handle: string) => getJSON<ArtistInfo>("/local/artist?" +
 export const track = (handle: string, slug: string) =>
   getJSON<{ track: Track }>("/local/track?" + new URLSearchParams({ handle, slug }));
 
+/// A comment left at a moment of the track (`at`, seconds in).
+export interface Comment {
+  id: number;
+  at: number;
+  body: string;
+  handle: string;
+  name: string;
+  img: string | null;
+  verified: boolean;
+}
+
+export const comments = (trackId: number) =>
+  getJSON<{ comments: Comment[] }>("/local/comments?" + new URLSearchParams({ id: String(trackId) }));
+
 export const likes = () => getJSON<{ tracks: Track[] }>("/local/likes");
 
 export const me = () => getJSON<Me>("/local/me");

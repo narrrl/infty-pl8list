@@ -619,3 +619,33 @@ async fn radio_of_an_unknown_artist_is_not_found() {
     let res = r.clone().oneshot(req("GET", "/local/artist?handle=made-up-handle", None, Some(&guest), "203.0.113.23")).await.unwrap();
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn comments_come_sorted_by_moment_and_cached() {
+    let pl8 = MockServer::start().await;
+    let page = |n: i64, at: f64| {
+        serde_json::json!({ "totalPages": 2, "comments": [
+            { "id": n, "body": format!("c{n}"), "timestampSeconds": at, "user": { "handle": "h", "name": "H" } }
+        ]})
+    };
+    for (n, at) in [(1, 30.0), (2, 10.0)] {
+        Mock::given(method("GET")).and(path("/api/a/track-1/comments")).and(query_param("page", n.to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page(n, at)))
+            .expect(1)
+            .mount(&pl8).await;
+    }
+    let (r, app, _) = setup("comments", &pl8.uri()).await;
+    known_track(&app, 1, "a").await;
+    let token = app.db.call(|c| { crate::db::upsert_user(c, 5, "tester", None, None)?; crate::db::create_session(c, 5) }).await.unwrap();
+    let cookie = format!("__Host-pl8inf={token}");
+    let get = |uri: &str| r.clone().oneshot(req("GET", uri, None, Some(&cookie), "203.0.113.1"));
+    for _ in 0..2 {
+        let res = get("/local/comments?id=1").await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = json_body(res).await;
+        let ids: Vec<i64> = body["comments"].as_array().unwrap().iter().map(|c| c["id"].as_i64().unwrap()).collect();
+        assert_eq!(ids, [2, 1]);
+    }
+    assert_eq!(get("/local/comments?id=99").await.unwrap().status(), StatusCode::NOT_FOUND);
+    assert_eq!(get("/local/comments?id=x").await.unwrap().status(), StatusCode::BAD_REQUEST);
+}

@@ -183,6 +183,38 @@ pub async fn track(State(app): St, Extension(current): Extension<CurrentUser>, Q
     Ok((no_store(), Json(json!({ "track": track }))).into_response())
 }
 
+/// The timed comments of a catalogue track (`?id=`), oldest moment first.
+pub async fn comments(State(app): St, Extension(current): Extension<CurrentUser>, Query(q): Query<HashMap<String, String>>) -> Res {
+    let uid = match reader(&app, &current) {
+        Ok(u) => u.id,
+        Err(r) => return Ok(r),
+    };
+    let Some(id) = q.get("id").and_then(|v| v.parse::<i64>().ok()) else {
+        return Ok(StatusCode::BAD_REQUEST.into_response());
+    };
+    // Kept a minute in the browser too: scrolling back to a track asks again.
+    let ok = |c: &[crate::comments::Comment]| {
+        ([(axum::http::header::CACHE_CONTROL, "private, max-age=60")], Json(json!({ "comments": c }))).into_response()
+    };
+    if let Some(c) = app.comments.cached(id) {
+        return Ok(ok(&c));
+    }
+    // Only tracks in the catalogue: anything else would have us ask pl8list for nothing.
+    let Some((handle, slug)) = app.db.read(move |c| db::track_path(c, id)).await? else {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
+    if !app.limits.comments.allow(&uid.to_string()) {
+        return Ok(json_error(StatusCode::TOO_MANY_REQUESTS, "slow down a little"));
+    }
+    match app.comments.fetch(&app.pl8, id, &handle, &slug).await {
+        Ok(c) => Ok(ok(&c)),
+        Err(e) => {
+            tracing::warn!("comments of {handle}/{slug}: {e:#}");
+            Ok(StatusCode::BAD_GATEWAY.into_response())
+        }
+    }
+}
+
 /// How many neighbours the radio sheet shows, and how few count as still exploring.
 const SHEET_NEIGHBOURS: usize = 12;
 const FEW_NEIGHBOURS: usize = 3;

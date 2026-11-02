@@ -28,6 +28,7 @@ use secrecy::SecretString;
 
 use crate::{
     cache::Cache,
+    comments::Comments,
     config::Config,
     crawler::Crawler,
     db::{self, Db, User},
@@ -61,6 +62,8 @@ pub struct Limits {
     pub resync: RateLimiter,
     /// Guests made per IP: each is a row in the database.
     pub guests: RateLimiter,
+    /// Comment fetches from pl8list, per user: only misses of the comment cache count.
+    pub comments: RateLimiter,
 }
 
 pub struct App {
@@ -75,6 +78,7 @@ pub struct App {
     pub cookies: Cookies,
     pub segments: proxy::SegmentKeys,
     pub legal: legal::Pages,
+    pub comments: Comments,
 }
 
 pub type St = State<Arc<App>>;
@@ -97,7 +101,9 @@ impl App {
                 pl8_writes: RateLimiter::new(60, 600),
                 resync: RateLimiter::new(1, 120),
                 guests: RateLimiter::new(10, 3600),
+                comments: RateLimiter::new(30, 300),
             },
+            comments: Comments::default(),
             logins: auth::PendingLogins::default(),
             segments: proxy::SegmentKeys::default(),
             sync,
@@ -119,7 +125,7 @@ impl App {
         }
         self.logins.prune();
         self.segments.prune();
-        for l in [&self.limits.guests, &self.limits.reads, &self.limits.proxy, &self.limits.proxy_ip, &self.limits.events] {
+        for l in [&self.limits.guests, &self.limits.reads, &self.limits.proxy, &self.limits.proxy_ip, &self.limits.events, &self.limits.comments] {
             l.prune();
         }
     }
@@ -349,6 +355,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/local/likes", get(app::likes))
         .route("/local/track", get(app::track))
         .route("/local/artist", get(app::artist))
+        .route("/local/comments", get(app::comments))
         .route("/local/event", post(app::event))
         .route("/local/follow", post(app::follow))
         .route("/account/export", get(account::export))

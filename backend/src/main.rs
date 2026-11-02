@@ -14,6 +14,7 @@
 #![allow(clippy::result_large_err)] // handlers return axum `Response` as their error
 
 mod cache;
+mod comments;
 mod config;
 mod crawler;
 mod db;

@@ -156,6 +156,11 @@ impl Pl8 {
         self.get_json(&[handle, slug, "related"], &[], Some("routes/$handle_.$slug.related"), None).await
     }
 
+    /// One page of a track's comments, newest first (`comments`, `totalPages`).
+    pub async fn comments(&self, handle: &str, slug: &str, page: i64) -> anyhow::Result<Option<Value>> {
+        self.get_json(&["api", handle, slug, "comments"], &[("page", page.to_string())], None, None).await
+    }
+
     pub async fn best_selling_artists(&self) -> anyhow::Result<Option<Value>> {
         self.get_json(&["best-selling-artists"], &[], Some("routes/best-selling-artists"), None).await
     }

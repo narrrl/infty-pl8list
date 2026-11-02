@@ -645,6 +645,133 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   transition: opacity 0.1s;
 }
 .wave-wrap.hover .wave-tip { opacity: 1; }
+
+/* Timed comments: dots in the reflection under the waveform, lit once played,
+   and bubbles that grow out of a dot when the music gets there. */
+.wave-comments { position: absolute; inset: auto 0 0; height: 28%; pointer-events: none; }
+.wc-dot {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: #ffffffa0;
+  transition: background 0.3s, box-shadow 0.3s;
+  animation: wc-sprout 0.5s calc(var(--x) * 0.7s) cubic-bezier(.2, .9, .3, 1.5) both;
+}
+.wc-dot.past { background: var(--card-accent); box-shadow: 0 0 6px var(--card-accent); }
+.wc-dot.hit { animation: wc-ping 0.7s ease-out; }
+@keyframes wc-sprout { from { transform: scale(0); opacity: 0; } }
+@keyframes wc-ping {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in oklab, var(--card-accent) 80%, transparent); }
+  25% { transform: scale(2.2); }
+  100% { transform: scale(1); box-shadow: 0 0 0 10px transparent; }
+}
+
+.wc-bubble {
+  position: absolute;
+  z-index: 3;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: min(17rem, 100%);
+  pointer-events: none;
+  translate: 0 calc(-1 * var(--lift, 0px));
+  transition: translate 0.4s cubic-bezier(.2, .9, .3, 1.2), opacity 0.2s;
+}
+/* A spark running up from the dot to the bubble as it opens. */
+.wc-bubble::before {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: calc(var(--tail) - 1px);
+  width: 2px;
+  height: var(--reach, 3rem);
+  border-radius: 1px;
+  background: linear-gradient(to top, var(--card-accent), transparent);
+  filter: drop-shadow(0 0 4px var(--card-accent));
+  transform-origin: bottom;
+  animation: wc-spark 0.9s ease-out both;
+}
+.wc-in {
+  position: relative;
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  padding: 0.35rem 0.7rem 0.4rem 0.35rem;
+  border-radius: 14px;
+  background: #000000a8;
+  backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--card-accent) 45%, transparent),
+    0 6px 22px #0008,
+    0 0 18px color-mix(in oklab, var(--card-accent) 22%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  text-align: left;
+  transform-origin: var(--tail) 100%;
+  animation: wc-rise 4.6s cubic-bezier(.2, .8, .3, 1) both;
+}
+/* The tail, pointing down at the dot. */
+.wc-in::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: calc(var(--tail) - 6px);
+  width: 12px;
+  height: 6px;
+  background: #000000a8;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.wc-avatar {
+  flex: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: center / cover #333;
+  color: #000;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.wc-text { display: flex; flex-direction: column; min-width: 0; }
+.wc-text b {
+  overflow: hidden;
+  color: var(--card-accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wc-text span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+@keyframes wc-rise {
+  0% { opacity: 0; transform: translateY(14px) scale(0.3); filter: blur(4px); }
+  12% { opacity: 1; transform: translateY(-3px) scale(1.06); filter: blur(0); }
+  20% { transform: translateY(0) scale(1); }
+  82% { opacity: 1; transform: translateY(-4px); }
+  100% { opacity: 0; transform: translateY(-18px) scale(0.96); filter: blur(3px); }
+}
+@keyframes wc-spark {
+  0% { transform: scaleY(0); opacity: 1; }
+  40% { transform: scaleY(1); opacity: 1; }
+  100% { transform: scaleY(1); opacity: 0; }
+}
+.wc-bubble.out { opacity: 0; }
+/* Peeking with the mouse: above the time tip, no spark, no fading out. */
+.wc-bubble.peek { bottom: calc(100% + 1.9rem); }
+.wc-bubble.peek::before { display: none; }
+.wc-bubble.peek .wc-in { animation: wc-peek 0.2s cubic-bezier(.2, .9, .3, 1.3) both; }
+@keyframes wc-peek { from { opacity: 0; transform: translateY(6px) scale(0.8); } }
+.wave-wrap:has(.wc-bubble.peek) .wc-bubble:not(.peek) { opacity: 0; }
+body.no-wave-comments :is(.wave-comments, .wc-bubble), body.zen :is(.wave-comments, .wc-bubble) { display: none; }
 .time { width: 100%; display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 .counts { opacity: 0.8; }
 .to-drop {
@@ -1183,4 +1310,7 @@ body.zen .content { gap: 0.3rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  /* Comment bubbles stay for their time instead of flashing past. */
+  .wc-in { animation: none; }
+  .wc-bubble::before { display: none; }
 }
