@@ -677,7 +677,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   max-width: min(17rem, 100%);
   pointer-events: none;
   translate: 0 calc(-1 * var(--lift, 0px));
-  transition: translate 0.4s cubic-bezier(.2, .9, .3, 1.2), opacity 0.2s;
+  transition: translate 0.4s ease, opacity 0.2s;
 }
 /* A spark running up from the dot to the bubble as it opens. */
 .wc-bubble::before {
@@ -689,8 +689,6 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   height: var(--reach, 3rem);
   border-radius: 1px;
   background: linear-gradient(to top, var(--card-accent), transparent);
-  filter: drop-shadow(0 0 4px var(--card-accent));
-  transform-origin: bottom;
   animation: wc-spark 0.9s ease-out both;
 }
 .wc-in {
@@ -700,8 +698,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   align-items: flex-start;
   padding: 0.35rem 0.7rem 0.4rem 0.35rem;
   border-radius: 14px;
-  background: #000000a8;
-  backdrop-filter: blur(12px);
+  background: #000000d0;
   box-shadow:
     inset 0 0 0 1px color-mix(in oklab, var(--card-accent) 45%, transparent),
     0 6px 22px #0008,
@@ -709,8 +706,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   font-size: 0.78rem;
   line-height: 1.25;
   text-align: left;
-  transform-origin: var(--tail) 100%;
-  animation: wc-rise 4.6s cubic-bezier(.2, .8, .3, 1) both;
+  animation: wc-fade 4.6s linear both;
 }
 /* The tail, pointing down at the dot. */
 .wc-in::after {
@@ -720,7 +716,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   left: calc(var(--tail) - 6px);
   width: 12px;
   height: 6px;
-  background: #000000a8;
+  background: #000000d0;
   clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
 .wc-avatar {
@@ -752,25 +748,23 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   overflow: hidden;
   overflow-wrap: anywhere;
 }
-/* No filter and no transform while it is read: either turns the text into a
-   scaled bitmap that stays soft. */
-@keyframes wc-rise {
-  0% { opacity: 0; transform: translateY(14px) scale(0.3); }
-  12% { opacity: 1; transform: translateY(-3px) scale(1.06); }
-  20%, 85% { opacity: 1; transform: none; }
-  100% { opacity: 0; transform: translateY(-16px); }
+/* Only opacity: no filter, scale or blur, which made the text soft and the
+   bubble stutter in over the moving waveform. */
+@keyframes wc-fade {
+  0% { opacity: 0; }
+  8%, 88% { opacity: 1; }
+  100% { opacity: 0; }
 }
 @keyframes wc-spark {
-  0% { transform: scaleY(0); opacity: 1; }
-  40% { transform: scaleY(1); opacity: 1; }
-  100% { transform: scaleY(1); opacity: 0; }
+  0%, 100% { opacity: 0; }
+  25% { opacity: 1; }
 }
 .wc-bubble.out { opacity: 0; }
 /* Peeking with the mouse: above the time tip, no spark, no fading out. */
 .wc-bubble.peek { bottom: calc(100% + 1.9rem); }
 .wc-bubble.peek::before { display: none; }
-.wc-bubble.peek .wc-in { animation: wc-peek 0.2s cubic-bezier(.2, .9, .3, 1.3) both; }
-@keyframes wc-peek { from { opacity: 0; transform: translateY(6px) scale(0.8); } }
+.wc-bubble.peek .wc-in { animation: wc-peek 0.15s ease-out both; }
+@keyframes wc-peek { from { opacity: 0; } }
 .wave-wrap:has(.wc-bubble.peek) .wc-bubble:not(.peek) { opacity: 0; }
 body.no-wave-comments :is(.wave-comments, .wc-bubble), body.zen :is(.wave-comments, .wc-bubble) { display: none; }
 .time { width: 100%; display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
