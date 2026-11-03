@@ -133,6 +133,11 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 "#;
 
+// preview_start: where a preview cuts in, as a fraction of the full track.
+const SCHEMA_V5: &str = r#"
+ALTER TABLE tracks ADD COLUMN preview_start REAL;
+"#;
+
 pub fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64()
 }
@@ -228,6 +233,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     }
     if version < 4 {
         conn.execute_batch(&format!("BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"))?;
+    }
+    if version < 5 {
+        conn.execute_batch(&format!("BEGIN; {SCHEMA_V5} PRAGMA user_version = 5; COMMIT;"))?;
     }
     Ok(())
 }
@@ -379,6 +387,8 @@ pub struct Track {
     pub key: Option<String>,
     pub duration: Option<f64>,
     pub preview_duration: Option<f64>,
+    /// Where the preview cuts in, 0..1 of the full track.
+    pub preview_start: Option<f64>,
     pub price: f64,
     pub created_at: Option<String>,
     pub upload_id: Option<String>,
@@ -393,9 +403,9 @@ pub struct Track {
     pub related_of: Option<i64>,
 }
 
-const TRACK_COLS: [&str; 23] = [
+const TRACK_COLS: [&str; 24] = [
     "id", "handle", "artist_name", "artist_img", "artist_verified", "slug", "title", "description",
-    "bpm", "key", "duration", "preview_duration", "price", "created_at", "upload_id",
+    "bpm", "key", "duration", "preview_duration", "preview_start", "price", "created_at", "upload_id",
     "preview_upload_id", "waveform", "preview_waveform", "full_access", "saves", "downloads",
     "purchases", "comments",
 ];
@@ -415,6 +425,7 @@ impl Track {
             key: r.get("key")?,
             duration: r.get("duration")?,
             preview_duration: r.get("preview_duration")?,
+            preview_start: r.get("preview_start")?,
             price: r.get::<_, Option<f64>>("price")?.unwrap_or(0.0),
             created_at: r.get("created_at")?,
             upload_id: r.get("upload_id")?,
@@ -449,6 +460,7 @@ impl Track {
             opt(&self.key),
             optf(self.duration),
             optf(self.preview_duration),
+            optf(self.preview_start),
             price,
             opt(&self.created_at),
             opt(&self.upload_id),

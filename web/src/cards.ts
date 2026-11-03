@@ -93,12 +93,16 @@ export class Card {
   private comments: WaveComments | null = null;
   private commentsAsked = false;
 
-  /// Fetch the timed comments, once. Previews have none: their moments are those
-  /// of the full track.
+  /// Fetch the timed comments, once. Their moments are those of the full track, so
+  /// a preview shows only the ones inside its clip, moved to where the clip starts.
   loadComments(): void {
-    if (this.commentsAsked || this.track.preview || !this.track.comments) return;
+    const t = this.track;
+    const start = t.preview ? t.preview_start : 0;
+    if (this.commentsAsked || start == null || !t.comments) return;
     this.commentsAsked = true;
-    comments(this.track.id).then(({ comments: list }) => {
+    comments(t.id).then(({ comments: all }) => {
+      const end = t.preview ? (t.duration ?? 0) : Infinity;
+      const list = start ? all.map((c) => ({ ...c, at: c.at - start })).filter((c) => c.at >= 0 && c.at <= end) : all;
       if (!list.length) return;
       this.comments = new WaveComments(list, () => this.actions.duration(this));
       const wrap = this.canvas?.parentElement;

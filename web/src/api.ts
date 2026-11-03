@@ -19,6 +19,8 @@ export interface Track {
   purchases: number;
   comments: number;
   preview: boolean;
+  /// For a preview: seconds into the full track where it cuts in.
+  preview_start?: number | null;
   upload_id: string | null;
   waveform: number[] | null;
   followed?: boolean;

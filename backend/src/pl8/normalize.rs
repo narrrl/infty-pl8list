@@ -82,6 +82,7 @@ fn track(t: &Value, extra: Extra) -> Option<Track> {
         key: text(t, "key"),
         duration: num(t, "duration"),
         preview_duration: num(t, "previewDuration"),
+        preview_start: num(t, "previewStart"),
         price: num(t, "price").unwrap_or(0.0),
         created_at: text(t, "createdAt"),
         upload_id: text(t, "uploadId"),

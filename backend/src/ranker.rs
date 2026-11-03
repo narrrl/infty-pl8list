@@ -479,6 +479,8 @@ pub fn serialize(r: &Track, score: Option<f64>) -> Value {
         "purchases": r.purchases,
         "comments": r.comments,
         "preview": preview,
+        // Seconds into the full track where the preview cuts in.
+        "preview_start": if preview { r.preview_start.zip(r.duration).map(|(f, d)| f * d) } else { None },
         "upload_id": if preview { &r.preview_upload_id } else { &r.upload_id },
         "waveform": wave.as_deref().and_then(|w| serde_json::from_str::<Value>(w).ok()),
         "score": score.map(|s| (s * 1000.0).round() / 1000.0),
