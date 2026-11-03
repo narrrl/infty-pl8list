@@ -1,13 +1,49 @@
-# pl8list rewind
+<p align="center">
+  <img src="web/public/icons/icon.svg" width="112" alt="">
+</p>
+
+<h1 align="center">pl8list rewind</h1>
+
+<p align="center">
+  <b>Endless riddim from pl8list. Like it, and it comes back.</b>
+</p>
+
+<p align="center">
+  <a href="https://pl8.narl.io"><img src="https://img.shields.io/badge/listen-pl8.narl.io-ff4d6d?style=for-the-badge" alt="Listen on pl8.narl.io"></a>
+</p>
+
+<p align="center">
+  <img src="docs/demo.gif" width="640" alt="Starting the feed, liking a track, scrolling on and opening the likes">
+</p>
 
 An endless, TikTok-style scroll through [pl8list](https://pl8list.com), with its own
-recommendation algorithm that learns from what you like, finish and skip. Sign in with
-your pl8list account; each user gets their own feed and taste profile.
+recommendation algorithm that learns from what you like, finish and skip. Open
+[pl8.narl.io](https://pl8.narl.io) and press play: no account needed. Sign in with your
+pl8list account to bring your likes and follows along.
 
 The name is the soundsystem rewind: when a dance loves a tune, the selector pulls the
 plate back and runs it again. Here, what you like comes back.
 
 Not affiliated with pl8list.
+
+## Features
+
+- **One track per screen.** Swipe, scroll or press ↓. The next track is already buffered and
+  crossfades in.
+- **A feed that learns.** Likes, finished plays, skips, "not for me" and follows shape what
+  comes next. Four feeds: for you, riddim, fresh and deep cuts.
+- **Artist radio.** Start a radio from any artist: them and their neighbours in the artist
+  graph, with a reason on each track.
+- **Liquid artwork.** A WebGL drop that moves with the kicks, snares and wobble of the track.
+  On riddim it turns to ferrofluid.
+- **Drop marks and timed comments.** The waveform marks the drops (`d` jumps to the next
+  one). pl8list comments pop up at the moment they were left at.
+- **Comfort.** Likes and history panels, sleep timer, bass boost, crossfade length, zen
+  mode, lock-screen and headphone controls. Installs to the home screen as an app.
+- **Private by design.** The browser only talks to this server. Audio and images are
+  proxied, so no visitor address reaches pl8list or a CDN.
+
+## Screenshots
 
 ![Feed on desktop](docs/feed-desktop.png)
 
@@ -16,11 +52,11 @@ Not affiliated with pl8list.
   <img src="docs/login.png" width="520" alt="Sign-in screen">
 </p>
 
-| Likes | Filters |
-| ----- | ------- |
-| ![Likes panel](docs/likes.png) | ![Filters](docs/filters.png) |
+| Likes | Filters and settings |
+| ----- | -------------------- |
+| ![Likes panel](docs/likes.png) | ![Filters and settings](docs/filters.png) |
 
-## Run
+## Run it yourself
 
 ```sh
 docker compose up -d --build       # http://127.0.0.1:8790
@@ -70,6 +106,11 @@ Data (catalogue, users, listening history) lives in the `data` volume as one SQL
 
 ## Accounts
 
+Nobody needs an account to listen. Pressing play the first time makes a guest
+(`POST /auth/guest`, at most 10 per IP per hour): a local user with its own session cookie,
+so the feed still learns. When a guest signs in on that device, their likes, follows and
+history move to the signed-in account. Signing out as a guest deletes the guest and its data.
+
 There are no passwords here. Users sign in with the email of their pl8list account:
 
 1. The user enters their email. The server starts pl8list's own login, and pl8list mails
@@ -116,23 +157,31 @@ visitor address reaches pl8list or a CDN.
 
 ## Controls
 
-| phone            | desktop              | action                         |
-| ---------------- | -------------------- | ------------------------------ |
-| tap              | click · space        | play / pause                   |
-| double-tap       | double-click · l     | like                           |
-| swipe up / down  | ↓ j · ↑ k            | next / previous                |
-| drag waveform    | drag waveform · ← →  | seek                           |
-| follow button    | f                    | follow the artist              |
-| radio button     | r                    | artist radio (more like them)  |
-|                  | v                    | liquid / simple visuals        |
-| ✕ button         | x                    | not for me (skip, show less)   |
-| share button     | s                    | share / copy link              |
-|                  | m                    | mute                           |
-|                  | ? · Esc              | help · close panels            |
+| phone            | desktop                   | action                                |
+| ---------------- | ------------------------- | ------------------------------------- |
+| tap              | click · space             | play / pause                          |
+| double-tap       | double-click · l          | like                                  |
+| swipe up / down  | ↓ j · ↑ k · wheel         | next / previous                       |
+| drag waveform    | drag waveform · ← →       | seek (keys: 10 s)                     |
+|                  | , .                       | seek 5 s                              |
+|                  | 0–9                       | jump to 0–90 %                        |
+| drop ↓ button    | d                         | jump to the next drop                 |
+| follow button    | f                         | follow the artist                     |
+| radio button     | r                         | artist radio (more like them)         |
+| ✕ button         | x                         | not for me (skip, show less)          |
+| share button     | s                         | share / copy link                     |
+|                  | v                         | liquid / simple visuals               |
+|                  | z                         | zen: just the drop                    |
+|                  | c · h                     | filters and settings · history        |
+|                  | m · + −                   | mute · volume                         |
+|                  | ? · Esc                   | help · close panels                   |
 
 Lock-screen, notification and headphone buttons control playback too (Media Session API).
-"likes" lists your likes newest first; ▶ plays one right away. The filters panel picks the
-feed (for you, riddim, fresh, deep cuts) and the visuals. "radio" on a card opens the radio
+The tabs in the top bar pick the feed (for you, riddim, fresh, deep cuts). "likes" lists your
+likes newest first, with search; "play" queues them in order or shuffled, and ▶ plays one
+right away. "history" lists what played lately, kept on the device only. The filters panel
+holds the filters and the settings: visuals, ferrofluid spikes, crossfade, bass boost,
+comments on the waveform and the sleep timer. "radio" on a card opens the radio
 sheet: the artist, their tags and the artists next to them (tap one to walk over to theirs).
 "start radio" jumps to the radio's first track; each radio track says why it is there, and the
 chip in the top bar goes back to your feed. Feed and filters (free only, BPM range) are
@@ -150,7 +199,8 @@ Single-letter keys clash with vim-key browser extensions (Vimium and the like), 
   current card and its neighbours are in the DOM. One wheel or trackpad gesture moves one
   page.
 - `player.ts`: two audio decks. The next track is buffered a few seconds after the current
-  one starts, so it plays at once; tracks crossfade (0.9 s, equal power) and the next one
+  one starts, so it plays at once; tracks crossfade (equal power, 0.9 s unless set otherwise
+  in the filters panel) and the next one
   starts just before the current one ends. Both decks run through a Web Audio graph with an
   analyser. Not on iOS: its element volume is read-only and Web Audio stops with the screen
   locked, so there tracks switch with a cut and lock-screen playback keeps working.
