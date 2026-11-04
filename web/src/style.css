@@ -4,8 +4,8 @@
   color-scheme: dark;
   --bg: #000;
   --fg: #f2f2f2;
-  --muted: #9a9a9a;
-  --faint: #666;
+  --muted: #b5b5b8;
+  --faint: #96969a;
   --accent: #ff4d6d;
   --panel: rgba(18, 18, 20, 0.94);
   --line: #ffffff1f;
@@ -18,7 +18,7 @@
   --radius-l: 18px;
   --shadow: 0 16px 40px #000a;
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: var(--font);
+  --font-display: "Arial Narrow", "Roboto Condensed", "Liberation Sans Narrow", sans-serif;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --fast: 0.15s;
 }
@@ -232,6 +232,9 @@ body.zen #bar { display: none; }
 #sleep-left { text-transform: none; letter-spacing: 0; color: var(--accent); }
 #spikes-setting legend small { text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; }
 .sheet-actions { display: flex; align-items: center; gap: 1rem; }
+.setting-note { margin: 0; color: var(--muted); font-size: 0.8rem; }
+.settings-divider { border-top: 1px solid var(--line-strong); padding-top: 1rem; }
+.settings-divider h3 { margin: 0 0 0.25rem; color: var(--fg); }
 .sheet-tools { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .sheet-tools input[type=search] {
   flex: 1 1 10rem;
@@ -335,7 +338,7 @@ body.zen #bar { display: none; }
 }
 .presets { display: flex; gap: 0.4rem; }
 .presets button { font-size: 0.8rem; padding: 0.25em 0.8em; }
-.presets button[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: #fff; }
+.presets button[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: #111; }
 
 /* Likes and history: artwork that plays, title, artist. */
 .track-list { margin: 0; padding: 0; list-style: none; color: var(--muted); }
@@ -349,7 +352,7 @@ body.zen #bar { display: none; }
 }
 .track-row:last-child { border-bottom: none; }
 .track-row .meta { min-width: 0; flex: 1; }
-.track-row .meta a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--fg); }
+.track-row .meta a { display: block; overflow-wrap: anywhere; text-decoration: none; color: var(--fg); }
 .track-row .meta a:hover { text-decoration: underline; }
 .track-row .meta span { font-size: 0.8rem; }
 .row-play {
@@ -365,8 +368,8 @@ body.zen #bar { display: none; }
   place-items: center;
   overflow: hidden;
 }
-.row-play::before { content: ""; position: absolute; inset: 0; background: #0006; opacity: 0; transition: opacity var(--fast); }
-.row-play svg { position: relative; width: 1rem; height: 1rem; opacity: 0; transition: opacity var(--fast); }
+.row-play::before { content: ""; position: absolute; inset: 0; background: #000a; opacity: 0.75; transition: opacity var(--fast); }
+.row-play svg { position: relative; width: 1rem; height: 1rem; opacity: 1; transition: opacity var(--fast); }
 .row-play:hover::before, .row-play:focus-visible::before, .row-play:hover svg, .row-play:focus-visible svg { opacity: 1; }
 @media not ((hover: hover) and (pointer: fine)) {
   .row-play::before { opacity: 0.6; }
@@ -565,6 +568,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   margin: 0;
   overflow-wrap: anywhere;
   text-wrap: balance;
+  font-stretch: condensed;
 }
 .why {
   margin: 0;
@@ -632,6 +636,12 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 
 .wave-wrap { position: relative; width: 100%; margin-top: 0.6rem; }
 .wave { display: block; width: 100%; height: 64px; cursor: pointer; touch-action: none; }
+.player-controls { display: flex; align-items: center; gap: 0.75rem; width: 100%; }
+.play-toggle { flex: none; width: 2.75rem; height: 2.75rem; padding: 0; display: grid; place-items: center; border-radius: 8px; background: var(--fg); color: #111; }
+.play-toggle svg { width: 1.35rem; height: 1.35rem; }
+.seek-controls { min-width: 0; flex: 1; }
+.seek { display: block; width: 100%; height: 1rem; margin: 0 0 0.2rem; accent-color: var(--accent); cursor: pointer; }
+.seek:disabled { opacity: 0.5; cursor: default; }
 .wave-tip {
   position: absolute;
   bottom: calc(100% + 4px);
@@ -811,7 +821,7 @@ body.no-wave-comments :is(.wave-comments, .wc-bubble), body.zen :is(.wave-commen
   height: 3rem;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.16);
   transition: background var(--fast), transform var(--fast);
 }
@@ -1078,7 +1088,7 @@ body.zen #up-next { display: none; }
 button.primary {
   background: var(--accent);
   border: none;
-  color: #fff;
+  color: #111;
   font-weight: 600;
   padding: 0.7em 1.2em;
   display: inline-flex;
@@ -1163,11 +1173,11 @@ button.primary:disabled { opacity: 0.35; cursor: default; }
 .login-links { display: flex; justify-content: space-between; }
 .login-box label.check { display: flex; gap: 0.6rem; align-items: flex-start; color: var(--fg); cursor: pointer; }
 .check input { margin-top: 0.2rem; accent-color: var(--accent); }
-.check small { display: block; margin-top: 0.2rem; color: #777; font-size: 0.75rem; line-height: 1.4; }
+.check small { display: block; margin-top: 0.2rem; color: #aaa; font-size: 0.75rem; line-height: 1.4; }
 #login-cancel { align-self: center; }
 .link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; font-size: 0.85rem; }
 #login-error { margin: 0; min-height: 1.2em; color: var(--accent); font-size: 0.9rem; }
-.fineprint { margin: 0; color: #666; font-size: 0.75rem; }
+.fineprint { margin: 0; color: #aaa; font-size: 0.75rem; }
 
 /* Phones ----------------------------------------------------------------- */
 
@@ -1213,7 +1223,7 @@ button.primary:disabled { opacity: 0.35; cursor: default; }
     border-radius: 999px;
     background: #fff5;
   }
-  .content { width: calc(100vw - 2rem); margin-bottom: 5.5rem; }
+  .content { width: calc(100vw - 2rem); margin-bottom: 6.5rem; gap: 0.6rem; }
   .actions {
     right: auto;
     left: 50%;
@@ -1224,6 +1234,14 @@ button.primary:disabled { opacity: 0.35; cursor: default; }
   }
   #up-next { bottom: calc(max(0.8rem, env(safe-area-inset-bottom)) + 4.6rem); }
   #toast { bottom: calc(max(0.8rem, env(safe-area-inset-bottom)) + 8rem); }
+}
+
+@media (max-width: 640px) and (max-height: 700px) {
+  .art { width: min(13rem, 27dvh, 55vw); margin-bottom: 0.15rem; }
+  .content { gap: 0.3rem; margin-top: 4rem; }
+  .wave-wrap { margin-top: 0; }
+  .wave { height: 48px; }
+  .desc { display: none; }
 }
 
 /* Zen: nothing but the drop, bigger, and the music. */

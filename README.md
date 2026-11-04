@@ -30,7 +30,7 @@ Not affiliated with pl8list.
 
 - **One track per screen.** Swipe, scroll or press ↓. The next track is already buffered and
   crossfades in.
-- **A feed that learns.** Likes, finished plays, skips, "not for me" and follows shape what
+- **A feed that learns.** Likes, finished plays, skips and follows shape what
   comes next. Four feeds: for you, riddim, fresh and deep cuts.
 - **Artist radio.** Start a radio from any artist: them and their neighbours in the artist
   graph, with a reason on each track.
@@ -168,7 +168,6 @@ visitor address reaches pl8list or a CDN.
 | drop ↓ button    | d                         | jump to the next drop                 |
 | follow button    | f                         | follow the artist                     |
 | radio button     | r                         | artist radio (more like them)         |
-| ✕ button         | x                         | not for me (skip, show less)          |
 | share button     | s                         | share / copy link                     |
 |                  | v                         | liquid / simple visuals               |
 |                  | z                         | zen: just the drop                    |
@@ -253,7 +252,7 @@ one request every 20 seconds. When a user likes or finishes a track, its related
 its artist's catalogue are crawled first.
 
 **Ranking** (`backend/src/ranker.rs`). Each track the user has not seen yet gets a score from popularity,
-freshness, artist affinity (from their likes, completions, skips, "not for me" and follows), closeness to the BPM and
+freshness, artist affinity (from their likes, completions, skips and follows), closeness to the BPM and
 key of tracks they liked, whether it is related to something they liked, and some random
 exploration. Artists are then spread out so you don't get five tracks from one person in a
 row. Weights live in a `Ranker`, which can also narrow the candidates and add a bonus;

@@ -105,7 +105,8 @@
   <form id="filters" aria-labelledby="filters-title">
     <h2 id="filters-title">filters and settings</h2>
     <fieldset>
-      <legend>filters</legend>
+      <legend>feed filters</legend>
+      <p class="setting-note">Apply these changes to refresh your feed.</p>
       <label class="switch"><input type="checkbox" name="free"> <span>free downloads only</span></label>
       <div class="bpm">
         <div class="bpm-head"><span>bpm</span><output id="bpm-out">any</output></div>
@@ -125,6 +126,7 @@
         <button type="button" id="filters-clear" class="link">clear</button>
       </div>
     </fieldset>
+    <div class="settings-divider"><h3>listening preferences</h3><p class="setting-note">Changes take effect immediately.</p></div>
     <fieldset class="modes">
       <legend>visuals</legend>
       <label><input type="radio" name="visuals" value="liquid"> liquid</label>
@@ -264,7 +266,6 @@
         <dt>← →</dt><dd>seek 10 s</dd>
         <dt>f</dt><dd>follow artist</dd>
         <dt>r</dt><dd>artist radio</dd>
-        <dt>x</dt><dd>not for me</dd>
         <dt>s</dt><dd>share</dd>
         <dt>v</dt><dd>liquid / simple visuals</dd>
         <dt>z</dt><dd>zen: just the drop</dd>
@@ -278,7 +279,7 @@
       <p>Drag the liquid artwork sideways to spin it. On riddim it turns to ferrofluid: spikes
         stand up with the bass, and each kick raises the same crown every bar. Lock-screen and
         headphone buttons work too.</p>
-      <p class="pointer-only fineprint">Keys like r or x doing something else, such as reloading or
+      <p class="pointer-only fineprint">Keys like r doing something else, such as reloading or
         closing the tab? A vim-keys browser extension (Vimium and the like) takes them first:
         turn it off for this site.</p>
       <button type="button" id="help-close">got it</button>
@@ -308,14 +309,13 @@
         <div class="chips"></div>
         <p class="desc"></p>
         <div class="wave-wrap">
-          <canvas class="wave"></canvas>
+          <canvas class="wave" aria-hidden="true"></canvas>
           <span class="wave-tip"></span>
         </div>
-        <div class="time"><span class="cur">0:00</span><button type="button" class="to-drop" title="jump to the drop (d)">drop <svg><use href="#i-down"/></svg></button><span class="counts"></span><span class="dur"></span></div>
+        <div class="player-controls"><button type="button" class="play-toggle" aria-label="pause"><svg aria-hidden="true"><use href="#i-pause"/></svg></button><div class="seek-controls"><input class="seek" type="range" min="0" max="0" value="0" step="1" aria-label="seek track" disabled><div class="time"><span class="cur">0:00</span><button type="button" class="to-drop" title="jump to the next marked drop (d)">drop <svg><use href="#i-down"/></svg></button><span class="counts"></span><span class="dur"></span></div></div></div>
       </div>
       <nav class="actions">
         <button type="button" class="act like" title="like (l)" aria-label="like"><span class="ring"><svg><use href="#i-heart"/></svg></span><span class="n saves"></span></button>
-        <button type="button" class="act dislike" title="not for me (x)" aria-label="not for me"><span class="ring"><svg><use href="#i-x"/></svg></span><span class="n">nope</span></button>
         <button type="button" class="act share" title="share (s)" aria-label="share"><span class="ring"><svg><use href="#i-share"/></svg></span><span class="n">share</span></button>
         <a class="act open" target="_blank" rel="noopener" title="open on pl8list" aria-label="open on pl8list"><span class="ring"><svg><use href="#i-comment"/></svg></span><span class="n comments"></span></a>
         <button type="button" class="act next" title="next (j)" aria-label="next"><span class="ring"><svg><use href="#i-down"/></svg></span><span class="n">next</span></button>

@@ -202,6 +202,8 @@ function activate(idx: number): void {
   const card = cards[idx];
   if (pager.index !== idx) pager.go(idx, { instant: true });
   card.element().classList.add("current");
+  card.setPlaying(false);
+  card.setTime(0);
   visual.attach(card);
   if (waveComments) card.loadComments();
   if (started) play(card.track);
@@ -260,7 +262,7 @@ upNext.addEventListener("click", () => go(active + 1));
 
 const actions: CardActions = {
   like: (c) => setLike(c, !c.liked),
-  dislike: (c) => dislike(c),
+  togglePlayback: (c) => { if (c === current() && started) player.toggle(); },
   share: (c) => share(c),
   next: (c) => go(cards.indexOf(c) + 1),
   follow: (c) => setFollow(c, !c.track.followed),
@@ -297,22 +299,6 @@ function nudgeSignIn(): void {
   if (!signedInUser?.guest || localStorage.getItem(NUDGE_KEY)) return;
   localStorage.setItem(NUDGE_KEY, "1");
   toast("sign in with pl8list to keep these, and bring your library along", 8000, { label: "sign in", run: () => showLogin() });
-}
-
-function dislike(card: Card): void {
-  api.sendEvent(card.track, "dislike");
-  if (card === current()) reported = true; // a dislike says more than a skip
-  const wasLiked = card.liked;
-  if (wasLiked) setLike(card, false);
-  go(cards.indexOf(card) + 1);
-  toast("skipped, less of this", 5000, {
-    label: "undo",
-    run: () => {
-      api.sendEvent(card.track, "undislike");
-      if (wasLiked) setLike(card, true);
-      go(cards.indexOf(card));
-    },
-  });
 }
 
 async function setFollow(card: Card, follow: boolean): Promise<void> {
@@ -429,10 +415,12 @@ player.on("ended", () => {
 
 player.on("play", () => {
   current()?.el?.classList.remove("paused");
+  current()?.setPlaying(true);
   visual.start();
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
 });
 player.on("pause", () => {
+  current()?.setPlaying(false);
   if (!player.audio.ended) current()?.el?.classList.add("paused");
   current()?.el?.classList.remove("buffering");
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
@@ -608,7 +596,7 @@ function start(): void {
   if (!localStorage.getItem(HINT_KEY)) {
     localStorage.setItem(HINT_KEY, "1");
     toast(isTouch ? "tap to pause · double-tap to like · swipe up for next"
-                  : "click to pause · double-click to like · ? for shortcuts", 5000);
+                  : "click to pause · double-click to like · ? for shortcuts", 8000, { label: "got it", run: () => {} });
   }
 }
 startEl.addEventListener("click", (e) => {
@@ -656,6 +644,7 @@ function trackRow(t: Track, sub: string, extra?: HTMLElement): HTMLLIElement {
   a.target = "_blank";
   a.rel = "noopener";
   a.textContent = cleanTitle(t.title);
+  a.title = cleanTitle(t.title);
   const by = document.createElement("span");
   by.textContent = sub;
   meta.append(a, by);
@@ -1033,13 +1022,14 @@ showFilters();
 // Keyboard --------------------------------------------------------------
 
 document.addEventListener("keydown", (e) => {
-  if ((e.target as Element).tagName === "INPUT" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === "Escape") {
     setZen(false);
     station.close();
     return;
   }
+  if ((e.target as Element).closest("input, button, a, select, textarea")) return;
   if (k === "?") { sheets.help.toggle(); return; }
   if (station.isOpen || Sheet.current || !loginEl.hidden) return;
   if (!started) {
@@ -1060,7 +1050,6 @@ document.addEventListener("keydown", (e) => {
   else if (k === "l" && card) setLike(card, !card.liked);
   else if (k === "f" && card) setFollow(card, !card.track.followed);
   else if (k === "r" && card) actions.radio(card);
-  else if (k === "x" && card) dislike(card);
   else if (k === "s" && card) share(card);
   else if (k === "h") sheets.history.open();
   else if (k === "c") sheets.filters.open();

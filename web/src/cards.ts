@@ -7,7 +7,7 @@ import { WaveComments } from "./comments";
 
 export interface CardActions {
   like(card: Card): void;
-  dislike(card: Card): void;
+  togglePlayback(card: Card): void;
   share(card: Card): void;
   next(card: Card): void;
   follow(card: Card): void;
@@ -191,7 +191,9 @@ export class Card {
     $(".comments").textContent = compact(t.comments);
 
     $(".like").addEventListener("click", () => this.actions.like(this));
-    $(".dislike").addEventListener("click", () => this.actions.dislike(this));
+    $(".play-toggle").addEventListener("click", () => this.actions.togglePlayback(this));
+    const seek = $<HTMLInputElement>(".seek");
+    seek.addEventListener("input", () => { if (this.actions.canSeek(this)) this.actions.seek(this, Number(seek.value)); });
     $(".share").addEventListener("click", () => this.actions.share(this));
     $(".next").addEventListener("click", () => this.actions.next(this));
     $(".follow").addEventListener("click", () => this.actions.follow(this));
@@ -230,6 +232,7 @@ export class Card {
     const btn = this.el?.querySelector(".like");
     if (!btn) return;
     btn.classList.toggle("on", this.liked);
+    btn.setAttribute("aria-pressed", String(this.liked));
     if (pop && this.liked) {
       btn.classList.remove("pop");
       void (btn as HTMLElement).offsetWidth; // restart the animation
@@ -242,6 +245,7 @@ export class Card {
     if (!btn) return;
     const on = !!this.track.followed;
     btn.classList.toggle("on", on);
+    btn.setAttribute("aria-pressed", String(on));
     btn.querySelector("span")!.textContent = on ? "following" : "follow";
     btn.querySelector("use")!.setAttribute("href", on ? "#i-check" : "#i-plus");
   }
@@ -249,6 +253,21 @@ export class Card {
   setTime(seconds: number): void {
     const cur = this.el?.querySelector(".cur");
     if (cur) cur.textContent = fmtTime(seconds);
+    const seek = this.el?.querySelector<HTMLInputElement>(".seek");
+    if (seek) {
+      const duration = this.actions.duration(this);
+      seek.disabled = !this.actions.canSeek(this) || !Number.isFinite(duration);
+      seek.max = String(Number.isFinite(duration) ? duration : 0);
+      seek.value = String(seconds);
+      seek.setAttribute("aria-valuetext", `${fmtTime(seconds)} of ${fmtTime(Number.isFinite(duration) ? duration : 0)}`);
+    }
+  }
+
+  setPlaying(playing: boolean): void {
+    const button = this.el?.querySelector<HTMLButtonElement>(".play-toggle");
+    if (!button) return;
+    button.setAttribute("aria-label", playing ? "pause" : "play");
+    button.querySelector("use")?.setAttribute("href", playing ? "#i-pause" : "#i-play");
   }
 
   private lastProgress = 0;
@@ -294,7 +313,7 @@ export class Card {
       const v = level(i);
       const x = i * BAR;
       const top = Math.max(2, v * (base - 2));
-      const color = i < played ? accent : i < loaded ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.22)";
+      const color = i < played ? accent : i < loaded ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.42)";
       // The bar, standing on the line; played ones glow.
       ctx.globalAlpha = 1;
       ctx.fillStyle = i < played ? grad : color;
@@ -312,6 +331,8 @@ export class Card {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(Math.min(w - 2, Math.max(0, progress * w)), 5, 2, base - 5);
     // A small mark over each drop.
     for (const d of this.drops) {
       const x = Math.round(d * bars) * BAR + (BAR - 1) / 2;
