@@ -283,7 +283,7 @@ export class Card {
     ctx.clearRect(0, 0, w, h);
     const data = this.track.waveform || [];
     const max = Math.max(1, ...data);
-    const accent = getComputedStyle(canvas).getPropertyValue("--card-accent").trim() || "#ff4d6d";
+    const accent = getComputedStyle(canvas).getPropertyValue("--accent").trim() || "#e9e8e3";
     const base = Math.round(h * (1 - MIRROR)) - 1;
     const below = h - base - 2;
     const level = (i: number) => (data.length ? data[Math.floor((i / bars) * data.length)] / max : 0.15);

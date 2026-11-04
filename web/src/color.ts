@@ -50,8 +50,8 @@ async function compute(src: string): Promise<string | null> {
 
 const BACKDROP = 64; // px square; it is shown blurred, so this is plenty
 const BLUR = 2; // px each side, per box blur pass at that size
-const DIM = 0.45;
-const SATURATE = 1.3;
+const DIM = 0.16;
+const SATURATE = 0.15;
 
 /// The card's background from the artist image, as a data URL: cropped square,
 /// blurred and darkened here, once, as `.bg`'s CSS filter would do on every frame.

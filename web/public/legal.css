@@ -1,6 +1,6 @@
 /* Impressum and privacy pages. Plain CSS outside the app bundle, so the server's
    templates can link it by a fixed name. */
-:root { color-scheme: dark; --fg: #f2f2f2; --muted: #9a9a9a; --accent: #ff4d6d; }
+:root { color-scheme: dark; --fg: #f2f2f2; --muted: #9a9a9a; --accent: #e9e8e3; }
 * { box-sizing: border-box; }
 body {
   margin: 0;

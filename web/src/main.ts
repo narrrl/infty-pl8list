@@ -1319,7 +1319,7 @@ function signedIn(user: User, pl8list?: Pl8Status): void {
   startEl.classList.remove("welcome");
   accountBtn.textContent = guest ? "sign in" : (user.name || user.handle)[0]?.toUpperCase() ?? "?";
   accountBtn.classList.toggle("guest", guest);
-  accountBtn.style.backgroundColor = guest ? "var(--glass-strong)" : accentForName(user.handle);
+  accountBtn.style.backgroundColor = guest ? "var(--glass-strong)" : "var(--accent)";
   accountBtn.title = guest ? "listening as a guest: sign in, or forget me" : `@${user.handle}`;
   $("account-handle").textContent = guest ? "listening as a guest" : `@${user.handle}`;
   $("delete-handle").textContent = user.handle;

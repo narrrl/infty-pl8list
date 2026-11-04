@@ -35,7 +35,7 @@ export class Ferro {
   private charge = new Float32Array(SPIKES);
   private seed = new Float32Array(SPIKES);
   private clock = 0;
-  private lastDrop = 0;
+  private dropArmed = true;
   /// Where on the crown the next kick lands, for tracks with scatter.
   private turn = Math.random();
   /// The tallest spike, so the shader can skip them all when there are none.
@@ -58,7 +58,7 @@ export class Ferro {
     this.height.fill(0);
     this.speed.fill(0);
     this.charge.fill(0);
-    this.lastDrop = 0;
+    this.dropArmed = true;
     this.tallest = 0;
     for (let i = 0; i < SPIKES; i++) this.data[i * 4 + 3] = 0;
   }
@@ -70,13 +70,15 @@ export class Ferro {
     const n = SPIKES;
     this.clock += dt;
     if (on && f.kickHit >= KICK_MIN && f.gap < 0.5) this.kick(f, look, reach, toObject);
-    if (on && f.drop > DROP_BURST && this.lastDrop <= DROP_BURST) {
+    if (f.drop < 0.2) this.dropArmed = true;
+    if (on && f.drop > DROP_BURST && this.dropArmed) {
+      this.dropArmed = false;
       for (let i = 0; i < n; i++) {
         this.charge[i] = 1;
         this.speed[i] += 2.5 * reach;
       }
     }
-    this.lastDrop = f.drop;
+
     if (on && f.snareHit >= look.jolt) {
       for (let i = 0; i < n; i++) this.speed[i] += f.snareHit * reach * (0.5 + 3 * this.charge[i]);
     }

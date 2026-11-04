@@ -45,6 +45,8 @@ Not affiliated with pl8list.
 
 ## Screenshots
 
+The [monochrome redesign previews](docs/redesign/README.md) show the current visual treatment using a synthetic track. The live-playback captures below predate that pass.
+
 ![Feed on desktop](docs/feed-desktop.png)
 
 <p align="center">
@@ -62,17 +64,17 @@ Not affiliated with pl8list.
 docker compose up -d --build       # http://127.0.0.1:8790
 ```
 
-or without Docker (Rust 1.85+, Node 22+):
+or without Docker (Rust 1.85+, Bun 1.4.4+):
 
 ```sh
-cd web && npm ci && npm run build   # front end into web/dist
+cd web && bun install --frozen-lockfile && bun run build   # front end into web/dist
 cd ../backend && cargo run --release # embeds web/dist at build time
 cargo test                          # unit tests + API tests against a fake pl8list
 ```
 
-For front-end work run the server, then `npm run dev` in `web/`: Vite serves the page with
+For front-end work run the server, then `bun run dev` in `web/`: Vite serves the page with
 hot reload on http://127.0.0.1:5173/static/ and passes API calls to the server (`BACKEND=` to point it
-elsewhere). Debug builds of the server read `web/dist` from disk, so `npm run build` is enough
+elsewhere). Debug builds of the server read `web/dist` from disk, so `bun run build` is enough
 to see changes on :8790 too.
 
 The server is the Rust crate in `backend/`, the front end is TypeScript in `web/` (Vite, no

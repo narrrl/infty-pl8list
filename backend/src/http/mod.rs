@@ -286,7 +286,7 @@ pub type Peer = ConnectInfo<SocketAddr>;
 
 // Static files ------------------------------------------------------------
 
-/// The built front end (`web/`, `npm run build`). Hashed asset names, so they
+/// The built front end (`web/`, `bun run build`). Hashed asset names, so they
 /// can be cached for good; index.html and fixed-name files are revalidated.
 #[derive(Embed)]
 #[folder = "../web/dist/"]

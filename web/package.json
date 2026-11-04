@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "check": "tsc --noEmit"
+    "dev": "bun --bun vite",
+    "build": "bun run check && bun --bun vite build",
+    "check": "bun --bun tsc --noEmit"
   },
   "dependencies": {
     "hls.js": "1.7.4"
@@ -13,5 +13,6 @@
   "devDependencies": {
     "typescript": "7.0.2",
     "vite": "8.3.5"
-  }
+  },
+  "packageManager": "bun@1.4.4"
 }

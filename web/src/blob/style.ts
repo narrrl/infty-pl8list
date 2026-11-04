@@ -48,14 +48,14 @@ export interface Look {
 }
 
 const BASE: Look = {
-  flow: 1, gain: 1, spike: 0.5, step: 0, throb: 1, bounce: 1, stiff: 90, twist: 0.15, ripple: 1, shock: 1, iri: 0.1, metal: 0.3, heat: 0, hue: 0,
+  flow: 1, gain: 1, spike: 0.5, step: 0, throb: 1, bounce: 0.35, stiff: 160, twist: 0.15, ripple: 1, shock: 1, iri: 0.1, metal: 0.3, heat: 0, hue: 0,
   ferro: 0, crown: 6, scatter: 0.4, reach: 0.22, hold: 2, jolt: 0.45, caustics: 1,
 };
 
 const TAGS: Record<string, (l: Look) => void> = {
   // Riddim: the spikes stand in step and the crown repeats every bar.
   riddim: (l) => Object.assign(l, {
-    step: 0.5, spike: 0.6, throb: 1.4, bounce: 1.3, stiff: 120, metal: 0.9, shock: 1.4, ripple: 1.2,
+    step: 0.7, spike: 0.6, throb: 1.4, bounce: 0.4, stiff: 200, metal: 0.9, shock: 1.4, ripple: 1.2,
     ferro: 1, crown: 4, scatter: 0, reach: 0.26, hold: 2, jolt: 0.4,
   }),
   tearout: (l) => Object.assign(l, { spike: 1.3, bounce: 1.4, gain: l.gain * 1.15, heat: 0.7, ferro: 1, crown: 6, scatter: 0.5, reach: 0.3, jolt: 0.25 }),
@@ -78,6 +78,7 @@ export function lookFor(t: Track): Look {
   // Untagged dubstep tempo counts too: most riddim carries no riddim tag.
   if (tags.includes("140")) l.ferro = 1;
   for (const tag of tags) TAGS[tag]?.(l);
+  l.bounce = Math.min(l.bounce, 0.45);
   l.hue = keyHue(t.key);
   return l;
 }

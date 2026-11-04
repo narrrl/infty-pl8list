@@ -17,13 +17,13 @@ const DIST = SPILL / Math.tan(FOV / 2);
 const MORPH_IN = 1.4; // s from flat artwork to liquid
 // The jump: a spring that each prominent kick or bass hit kicks upwards. Hits are
 // weighed by prominence squared, so only the strongest really make it jump.
-const JUMP = 1.9; // upward speed of a full-strength hit, in radii per second
-const JUMP_DAMPING = 7; // 1/s; low enough that it jiggles a few times as it lands
-const MAX_LIFT = 0.16; // radii
+const JUMP = 0.5; // upward speed of a full-strength hit, in radii per second
+const JUMP_DAMPING = 22; // 1/s; low enough that it jiggles a few times as it lands
+const MAX_LIFT = 0.035; // radii
 const STRETCH = 0.08; // stretch per unit of speed: long while flying, squashed on landing
 const PUMP = 0.7; // size kick of a snare hit
 const PUMP_STIFF = 160;
-const PUMP_DAMPING = 12;
+const PUMP_DAMPING = 24;
 const THROB = 0.09; // size swing with the bass line's envelope
 const WHIRL = 15; // rad/s of hand spin at which it bulges and sloshes the most
 const SNARE_ATTACK = 0.03; // s; spikes grow in rather than pop
@@ -117,6 +117,8 @@ export class LiquidBlob {
   private jump = [0, 0];
   private pump = [0, 0];
   private snare = 0;
+  private dropArmed = true;
+  private dropImpulse = 0;
   /// The icon: its shape (0 pause, 1 play), how much it shows, and since when the
   /// playing state is what it is. `iconFor` is null until the first frame of a track.
   private iconShape = 1;
@@ -241,6 +243,8 @@ export class LiquidBlob {
     this.slow = this.fast = 0;
     this.spin.reset();
     this.ferro.reset();
+    this.dropArmed = true;
+    this.dropImpulse = 0;
     this.light = 0;
     this.iconFor = null;
     const source = await artwork(art, initial, tint).catch(() => artwork(null, initial, tint));
@@ -295,11 +299,17 @@ export class LiquidBlob {
     this.morph = Math.min(1, this.morph + dt / MORPH_IN);
     const morph = this.morph * this.morph * (3 - 2 * this.morph);
     // The liquid flows with the tempo, faster when the music moves more.
-    this.time += dt * look.flow * (playing ? 0.6 + 0.8 * f.wobble + 0.6 * f.drop : 0.25);
+    this.time += dt * look.flow * (playing ? (0.25 + 0.8 * f.wobble + 0.3 * this.dropImpulse) * (1 - 0.9 * f.gap) : 0.25);
     const k = 1 - Math.exp(-dt / 0.15);
     for (let i = 0; i < 4; i++) this.pointer[i] += (this.pointerGoal[i] - this.pointer[i]) * k;
     const spinning = this.spin.step(dt);
     const showing = this.showIcon(s, dt);
+    if (f.drop < 0.2) this.dropArmed = true;
+    if (playing && this.dropArmed && f.drop > 0.55) {
+      this.dropImpulse = 1;
+      this.dropArmed = false;
+    }
+    this.dropImpulse *= Math.exp(-dt / 0.22);
     const moving = this.bounce(f, dt, look);
 
     const u = this.u;
@@ -310,12 +320,12 @@ export class LiquidBlob {
     gl.uniform1f(u.uWobble, f.wobble);
     gl.uniform1f(u.uKick, f.kick);
     gl.uniform1f(u.uKickAge, f.kickAge);
-    gl.uniform1f(u.uDrop, f.drop);
+    gl.uniform1f(u.uDrop, this.dropImpulse);
     gl.uniform1f(u.uBass, f.bass * look.throb);
     gl.uniform1f(u.uGrowl, f.growl);
     this.snare += (f.snare - this.snare) * ease(dt, f.snare > this.snare ? SNARE_ATTACK : SNARE_RELEASE);
     gl.uniform1f(u.uSnare, this.snare);
-    gl.uniform1f(u.uGain, look.gain);
+    gl.uniform1f(u.uGain, look.gain * (1 - 0.85 * f.gap));
     gl.uniform1f(u.uSpike, look.spike);
     gl.uniform1f(u.uStep, look.step);
     gl.uniform1f(u.uTwist, look.twist);
@@ -368,7 +378,7 @@ export class LiquidBlob {
     if (f.kickHit) jump[1] += JUMP * look.bounce * f.kickHit ** 2;
     if (f.snareHit) pump[1] += PUMP * look.bounce * f.snareHit ** 2;
     // The size also follows the bass and the drop, through the same spring.
-    const pumpRest = 0.04 * f.low + 0.05 * f.drop;
+    const pumpRest = (0.025 * f.low + 0.065 * this.dropImpulse - 0.045 * f.kick) * (1 - f.gap);
     // Small fixed steps keep the springs stable on slow frames.
     for (let left = Math.min(dt, 0.1); left > 0; left -= 1 / 240) {
       const h = Math.min(left, 1 / 240);
@@ -381,7 +391,7 @@ export class LiquidBlob {
     // Long while it flies up, squashed as it comes down and lands.
     const stretch = 1 + Math.min(0.18, Math.max(-0.15, jump[1] * STRETCH + Math.min(0, jump[0]) * 1.2));
     // Each "womb" of the bass line swells the whole drop.
-    const size = 1 + pump[0] + THROB * look.throb * f.bass;
+    const size = Math.max(0.88, Math.min(1.18, 1 + pump[0] + THROB * look.throb * f.bass * (1 - f.gap)));
     // Spun fast it flattens out a little, like dough, and sloshes.
     const whirl = Math.min(1, this.spin.speed / WHIRL);
     const side = (size / Math.sqrt(stretch)) * (1 + 0.08 * whirl);

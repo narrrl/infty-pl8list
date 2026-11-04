@@ -141,7 +141,7 @@ export class Caustics {
     gl.uniform1f(u.uHue, look.hue);
     gl.uniform1f(u.uIri, look.iri);
     gl.uniform1f(u.uHeat, look.heat);
-    gl.uniform1f(u.uAmount, c.amount * look.caustics);
+    gl.uniform1f(u.uAmount, c.amount * look.caustics * 0.22);
     gl.disable(gl.DEPTH_TEST);
     gl.depthMask(false);
     gl.bindVertexArray(this.vao);

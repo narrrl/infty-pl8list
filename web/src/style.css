@@ -1,24 +1,28 @@
+@font-face { font-family: Barlow; src: url('/fonts/Barlow-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Barlow Condensed'; src: url('/fonts/BarlowCondensed-Bold.ttf') format('truetype'); font-weight: 700 900; font-display: swap; }
+
 /* Design tokens ---------------------------------------------------------- */
 
 :root {
   color-scheme: dark;
-  --bg: #000;
+  --bg: #090a0b;
   --fg: #f2f2f2;
   --muted: #b5b5b8;
   --faint: #96969a;
-  --accent: #ff4d6d;
-  --panel: rgba(18, 18, 20, 0.94);
+  --accent: #e9e8e3;
+  --danger: #ff8b8b;
+  --panel: #141517;
   --line: #ffffff1f;
   --line-strong: #333;
   --scrim: #000b;
   --glass: rgba(255, 255, 255, 0.1);
   --glass-strong: rgba(255, 255, 255, 0.2);
-  --radius-s: 8px;
-  --radius-m: 14px;
-  --radius-l: 18px;
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 6px;
   --shadow: 0 16px 40px #000a;
-  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Arial Narrow", "Roboto Condensed", "Liberation Sans Narrow", sans-serif;
+  --font: Barlow, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --fast: 0.15s;
 }
@@ -46,7 +50,7 @@ button {
   cursor: pointer;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 999px;
+  border-radius: 5px;
   padding: 0.35em 0.9em;
 }
 
@@ -90,7 +94,7 @@ body.zen :is(#discovery-options, #active-filters) { display: none; }
   display: flex;
   gap: 0.2rem;
   padding: 0.2rem;
-  border-radius: 999px;
+  border-radius: 5px;
   background: var(--glass);
   backdrop-filter: blur(12px);
 }
@@ -147,7 +151,7 @@ body.zen :is(#discovery-options, #active-filters) { display: none; }
   appearance: none;
   -webkit-appearance: none;
   background: linear-gradient(90deg, var(--fg) var(--v), #ffffff30 var(--v)) center / 100% 4px no-repeat;
-  border-radius: 999px;
+  border-radius: 5px;
   cursor: pointer;
 }
 #volume-slider::-webkit-slider-thumb {
@@ -247,7 +251,7 @@ body.zen :is(#discovery-options, #active-filters) { display: none; }
   flex: 1 1 10rem;
   min-width: 0;
   padding: 0.55em 0.9em;
-  border-radius: 999px;
+  border-radius: 5px;
   border: 1px solid var(--line-strong);
   background: #111;
 }
@@ -258,7 +262,7 @@ body.zen :is(#discovery-options, #active-filters) { display: none; }
 .modes input { position: absolute; opacity: 0; pointer-events: none; }
 .modes label:has(input) {
   padding: 0.3em 0.9em;
-  border-radius: 999px;
+  border-radius: 5px;
   border: 1px solid #ffffff40;
   font-size: 0.85rem;
   transition: background var(--fast);
@@ -274,7 +278,7 @@ body.zen :is(#discovery-options, #active-filters) { display: none; }
   width: 2.6rem;
   height: 1.5rem;
   margin: 0;
-  border-radius: 999px;
+  border-radius: 5px;
   background: #ffffff26;
   position: relative;
   cursor: pointer;
@@ -435,7 +439,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   position: absolute;
   inset: -40px;
   background: #111 center / cover no-repeat;
-  filter: blur(40px) brightness(0.45) saturate(1.3);
+  filter: blur(40px) brightness(0.16) saturate(0.15);
 }
 /* Already blurred and darkened (color.ts): a CSS blur over the whole screen would
    be worked out again whenever anything on top of it moves. */
@@ -446,7 +450,7 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   inset: 0;
   pointer-events: none;
   background: radial-gradient(55% 40% at 50% 40%, color-mix(in oklab, var(--card-accent) 55%, transparent), transparent 70%);
-  opacity: calc(0.18 + var(--energy) * 0.55);
+  opacity: calc(0.03 + var(--energy) * 0.07);
   will-change: opacity;
 }
 
@@ -502,11 +506,11 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
 .card.liquid .art::before {
   content: "";
   position: absolute;
-  inset: -65%;
+  inset: -25%;
   background: radial-gradient(closest-side, color-mix(in oklab, var(--card-accent) 83%, transparent), transparent);
   /* Pulses through transform and opacity only, so it never has to be painted again. */
   transform: scale(calc(0.87 + var(--energy) * 0.13));
-  opacity: calc(0.34 + var(--energy) * 0.66);
+  opacity: calc(0.06 + var(--energy) * 0.12);
   will-change: transform, opacity;
   pointer-events: none;
 }
@@ -607,27 +611,27 @@ button.danger:not(.link) { background: var(--accent); border: none; color: #fff;
   gap: 0.3em;
   font-size: 0.75rem;
   padding: 0.2em 0.75em 0.2em 0.55em;
-  border-radius: 999px;
+  border-radius: 5px;
   border: 1px solid #ffffff40;
   background: transparent;
   transition: background var(--fast), border-color var(--fast);
 }
 .pill svg { width: 0.95em; height: 0.95em; }
 .pill:hover { background: var(--glass); }
-.follow.on { background: color-mix(in oklab, var(--card-accent) 25%, transparent); border-color: transparent; }
+.follow.on { background: var(--accent); color: #111; border-color: transparent; }
 
 .chips { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: center; }
 .chips span {
   font-size: 0.75rem;
   padding: 0.1em 0.6em;
-  border-radius: 999px;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.12);
 }
 .chips .free { background: #1f7a4d; }
 .chips .new { background: var(--fg); color: #000; font-weight: 700; }
-.chips span:first-child { background: color-mix(in oklab, var(--card-accent) 35%, transparent); }
+.chips span:first-child { background: #252729; }
 .chips .preview { background: #6a4b16; }
-.chips .tag { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--card-accent) 60%, transparent); }
+.chips .tag { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
 
 .desc {
   margin: 0;
@@ -787,7 +791,7 @@ body.no-wave-comments :is(.wave-comments, .wc-bubble), body.zen :is(.wave-commen
   margin-right: auto;
   padding: 0.05em 0.6em;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: 5px;
   background: none;
   color: var(--fg);
   font-size: inherit;
@@ -885,7 +889,7 @@ body.no-wave-comments :is(.wave-comments, .wc-bubble), body.zen :is(.wave-commen
   bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 3.4rem);
   transform: translate(-50%, 1rem);
   padding: 0.6em 1.1em;
-  border-radius: 999px;
+  border-radius: 5px;
   background: #222e;
   border: 1px solid #ffffff22;
   font-size: 0.9rem;
@@ -1006,7 +1010,7 @@ body.zen #up-next { display: none; }
 }
 .start-welcome a { color: inherit; }
 /* A guest's account button says what it is for. */
-.avatar-btn.guest { width: auto; padding: 0 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.85rem; color: var(--fg); }
+.avatar-btn.guest { width: auto; padding: 0 0.9rem; border-radius: 5px; font-weight: 600; font-size: 0.85rem; color: var(--fg); }
 
 /* Radio sheet: a bottom sheet on phones, a centred box elsewhere. */
 #station {
@@ -1140,10 +1144,7 @@ button.primary:disabled { opacity: 0.35; cursor: default; }
   display: grid;
   place-items: center;
   padding: 1rem;
-  background:
-    radial-gradient(60rem 40rem at 20% 10%, #ff4d6d33, transparent 60%),
-    radial-gradient(50rem 40rem at 90% 90%, #4d6dff2e, transparent 60%),
-    #050507;
+  background: var(--bg);
 }
 
 .login-box {
@@ -1224,7 +1225,7 @@ button.primary:disabled { opacity: 0.35; cursor: default; }
     width: 2.6rem;
     height: 0.3rem;
     margin: 0.55rem auto 0;
-    border-radius: 999px;
+    border-radius: 5px;
     background: #fff5;
   }
   .content { width: calc(100vw - 2rem); margin-bottom: 6.5rem; gap: 0.6rem; }
@@ -1268,7 +1269,7 @@ body.zen .content { gap: 0.3rem; }
   .bar-end {
     gap: 0.15rem;
     padding: 0.25rem;
-    border-radius: 999px;
+    border-radius: 5px;
     background: var(--glass);
     backdrop-filter: blur(12px);
   }
@@ -1330,4 +1331,40 @@ body.zen .content { gap: 0.3rem; }
   /* Comment bubbles stay for their time instead of flashing past. */
   .wc-in { animation: none; }
   .wc-bubble::before { display: none; }
+}
+
+/* Monochrome soundsystem surfaces. Keep the controls still around the sculpture. */
+.logo, .start-logo, .login-box h1 { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.025em; }
+.title { font-family: var(--font-display); font-weight: 700; line-height: 1.05; letter-spacing: 0.015em; }
+.time, .counts, .chips, .station-kicker, .up-next-label { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+#mode-tabs, .bar-end, #up-next { background: var(--panel); border: 1px solid var(--line); backdrop-filter: none; }
+button { min-height: 2.75rem; }
+button:hover { border-color: #737578; }
+button:active { filter: brightness(0.85); }
+button:disabled { cursor: default; opacity: 0.45; }
+.icon-btn { min-width: 2.75rem; min-height: 2.75rem; }
+.chips span { border-radius: 3px; background: #202225; color: var(--fg); border: 1px solid var(--line); }
+.chips span.free, .chips span.new { background: #252729; color: var(--fg); }
+.act .ring { background: #191b1d; border: 1px solid var(--line); backdrop-filter: none; }
+.art { box-shadow: 0 12px 35px #0009, 0 0 0 1px #ffffff24; scale: 1; }
+/* Fade the canvas spill before the title or navigation, including the caustics. */
+.liquid-canvas { mask-image: linear-gradient(transparent 2%, #000 18% 72%, transparent 88%); }
+.card.liquid .art { margin-bottom: 2.8rem; }
+.sheet, .station-box { box-shadow: 0 20px 80px #000b; }
+.track-row { padding-block: 0.7rem; }
+.login-box button[type=submit], .help-box button { color: #111; }
+.link.danger, #login-error { color: var(--danger); }
+button.danger:not(.link) { background: var(--danger); color: #111; }
+#login input { border-radius: var(--radius-s); }
+@media (max-width: 640px) {
+  #mode-tabs button { padding-inline: 0.7em; }
+  .content { margin-top: 3rem; }
+  .art { width: min(14rem, 29dvh, 58vw); }
+  .card.liquid .art { margin-bottom: 1.8rem; }
+  .actions { gap: 0.5rem; }
+}
+@media (max-width: 640px) and (max-height: 700px) {
+  .art { width: min(10rem, 22dvh, 48vw); }
+  .card.liquid .art { margin-bottom: 1.2rem; }
+  .content { gap: 0.25rem; }
 }
