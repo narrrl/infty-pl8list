@@ -45,8 +45,8 @@ const SLOW_FOR = 2; // … and this many seconds of them step the quality down
 const FAST_FOR = 10; // s of frames on time before it tries one step up again
 /// Quality steps: icosphere subdivisions and resolution scale.
 const QUALITY: [number, number][] = [[5, 1], [4, 1], [4, 0.6], [3, 0.5]];
-/// Quality steps that still draw the light behind the drop.
-const CAUSTICS_UP_TO = 1;
+/// Keep the light at reduced resolution; only the emergency tier omits it.
+const CAUSTICS_UP_TO = 2;
 const CAUSTICS_IN = 0.6; // s for the light to come up as playing starts, and go
 
 /// Ferrofluid spikes: "auto" shows them where the track's look asks for them (style.ts).
