@@ -9,3 +9,5 @@ Still requires real-device validation: real-track onset timing, touch gestures, 
 Run the frontend with `cd web && bun install --frozen-lockfile && bun run dev`. Build with `bun run build`.
 
 The chromatic artwork material, artist accents and rounded controls have been restored following visual feedback. The drop button has a centered row beneath the waveform, no arrow, and a 44px minimum height. Chart selectors have dedicated clearance on short mobile screens.
+
+The player now uses one waveform-aligned action console on desktop and mobile, with drop centered. A track without detected drops keeps that control disabled to preserve the layout. Primary controls use pl8list's public Pico lime colors (`#a5d601`, hover `#b2e51a`); artist colors still drive the artwork and waveform. Checked desktop and short-mobile layouts with chart selectors visible; the synthetic Chromium fixture reported no page errors.

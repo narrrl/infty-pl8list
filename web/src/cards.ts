@@ -195,7 +195,8 @@ export class Card {
     $(".follow").addEventListener("click", () => this.actions.follow(this));
     $(".radio").addEventListener("click", () => this.actions.radio(this));
     const toDrop = $(".to-drop");
-    toDrop.hidden = !this.drops.length;
+    (toDrop as HTMLButtonElement).disabled = !this.drops.length;
+    if (!this.drops.length) toDrop.title = "no marked drops in this track";
     toDrop.addEventListener("click", () => this.actions.toDrop(this));
 
     this.el = el;
