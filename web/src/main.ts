@@ -224,7 +224,6 @@ function activate(idx: number): void {
   const card = cards[idx];
   if (pager.index !== idx) pager.go(idx, { instant: true });
   card.element().classList.add("current");
-  card.setPlaying(false);
   card.setTime(0);
   visual.attach(card);
   if (waveComments) card.loadComments();
@@ -285,7 +284,6 @@ upNext.addEventListener("click", () => go(active + 1));
 
 const actions: CardActions = {
   like: (c) => setLike(c, !c.liked),
-  togglePlayback: (c) => { if (c === current() && started) player.toggle(); },
   share: (c) => share(c),
   next: (c) => go(cards.indexOf(c) + 1),
   follow: (c) => setFollow(c, !c.track.followed),
@@ -438,12 +436,10 @@ player.on("ended", () => {
 
 player.on("play", () => {
   current()?.el?.classList.remove("paused");
-  current()?.setPlaying(true);
   visual.start();
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
 });
 player.on("pause", () => {
-  current()?.setPlaying(false);
   if (!player.audio.ended) current()?.el?.classList.add("paused");
   current()?.el?.classList.remove("buffering");
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";

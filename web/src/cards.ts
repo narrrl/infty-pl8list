@@ -7,7 +7,6 @@ import { WaveComments } from "./comments";
 
 export interface CardActions {
   like(card: Card): void;
-  togglePlayback(card: Card): void;
   share(card: Card): void;
   next(card: Card): void;
   follow(card: Card): void;
@@ -191,9 +190,6 @@ export class Card {
     $(".comments").textContent = compact(t.comments);
 
     $(".like").addEventListener("click", () => this.actions.like(this));
-    $(".play-toggle").addEventListener("click", () => this.actions.togglePlayback(this));
-    const seek = $<HTMLInputElement>(".seek");
-    seek.addEventListener("input", () => { if (this.actions.canSeek(this)) this.actions.seek(this, Number(seek.value)); });
     $(".share").addEventListener("click", () => this.actions.share(this));
     $(".next").addEventListener("click", () => this.actions.next(this));
     $(".follow").addEventListener("click", () => this.actions.follow(this));
@@ -254,21 +250,6 @@ export class Card {
   setTime(seconds: number): void {
     const cur = this.el?.querySelector(".cur");
     if (cur) cur.textContent = fmtTime(seconds);
-    const seek = this.el?.querySelector<HTMLInputElement>(".seek");
-    if (seek) {
-      const duration = this.actions.duration(this);
-      seek.disabled = !this.actions.canSeek(this) || !Number.isFinite(duration);
-      seek.max = String(Number.isFinite(duration) ? duration : 0);
-      seek.value = String(seconds);
-      seek.setAttribute("aria-valuetext", `${fmtTime(seconds)} of ${fmtTime(Number.isFinite(duration) ? duration : 0)}`);
-    }
-  }
-
-  setPlaying(playing: boolean): void {
-    const button = this.el?.querySelector<HTMLButtonElement>(".play-toggle");
-    if (!button) return;
-    button.setAttribute("aria-label", playing ? "pause" : "play");
-    button.querySelector("use")?.setAttribute("href", playing ? "#i-pause" : "#i-play");
   }
 
   private lastProgress = 0;
