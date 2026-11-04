@@ -30,8 +30,8 @@ Not affiliated with pl8list.
 
 - **One track per screen.** Swipe, scroll or press ↓. The next track is already buffered and
   crossfades in.
-- **A feed that learns.** Likes, finished plays, skips and follows shape what
-  comes next. Four feeds: for you, riddim, fresh and deep cuts.
+- **Discovery.** A personalized feed, new tracks, deep cuts, and pl8list's best-seller
+  and free-download charts for this week, this year, or all time.
 - **Artist radio.** Start a radio from any artist: them and their neighbours in the artist
   graph, with a reason on each track.
 - **Liquid artwork.** A WebGL drop that moves with the kicks, snares and wobble of the track.
@@ -176,7 +176,9 @@ visitor address reaches pl8list or a CDN.
 |                  | ? · Esc                   | help · close panels                   |
 
 Lock-screen, notification and headphone buttons control playback too (Media Session API).
-The tabs in the top bar pick the feed (for you, riddim, fresh, deep cuts). "likes" lists your
+The tabs in the top bar pick the feed (for you, charts, new, deep cuts). Charts keep
+pl8list's ordering and include tracks you've heard before. Tempo presets include half and
+double time; custom BPM ranges match the exact value. "likes" lists your
 likes newest first, with search; "play" queues them in order or shuffled, and ▶ plays one
 right away. "history" lists what played lately, kept on the device only. The filters panel
 holds the filters and the settings: visuals, ferrofluid spikes, crossfade, bass boost,
@@ -265,6 +267,9 @@ row. Weights live in a `Ranker`, which can also narrow the candidates and add a 
 | `fresh`                    | uploads of the last 45 days, newest weighted up                                |
 | `deep`                     | tracks with 15 saves or fewer; popularity counts against a track               |
 | `artist&artist=<handle>`   | artist radio: the artist and their neighbours in the artist graph (two hops)   |
+
+`/local/charts?kind=sales|free&period=week|year|all-time` returns the corresponding
+public pl8list chart in its original order, independently of served-track history.
 
 In an artist radio each track carries `why`: `seed`, `related` (a neighbour), or `via` with the
 neighbour that leads to a second-hop artist. `/local/artist?handle=` returns an artist, their

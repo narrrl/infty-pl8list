@@ -77,6 +77,13 @@ body.zen #bar { display: none; }
 .logo b { color: var(--accent); font-weight: 700; }
 .logo svg { width: 1.3em; height: 1.3em; color: var(--accent); flex: none; }
 .bar-end { justify-self: end; display: flex; align-items: center; gap: 0.4rem; }
+#discovery-options, #active-filters { position: fixed; z-index: 11; left: 50%; transform: translateX(-50%); }
+#discovery-options { top: 4.2rem; display: flex; gap: 0.5rem; align-items: center; }
+#discovery-options label { display: flex; align-items: center; gap: 0.35rem; color: var(--muted); font-size: 0.75rem; }
+#discovery-options select { color: var(--fg); background: #18181b; border: 1px solid #ffffff40; border-radius: 8px; padding: 0.45rem; font: inherit; }
+#active-filters { top: 7.3rem; padding: 0.35rem 0.7rem; background: #19191de8; border-radius: 8px; font-size: 0.75rem; white-space: nowrap; }
+body:has(#discovery-options[hidden]) #active-filters { top: 4.3rem; }
+body.zen :is(#discovery-options, #active-filters) { display: none; }
 
 /* Feed modes as segmented tabs, the middle of the bar. */
 #mode-tabs {
@@ -1188,6 +1195,9 @@ button.primary:disabled { opacity: 0.35; cursor: default; }
   /* Phones have volume buttons; the bar has no room. */
   #volume { display: none; }
   .logo-pl8 { display: none; }
+  #discovery-options { top: calc(max(0.6rem, env(safe-area-inset-top)) + 5.8rem); }
+  #active-filters { top: calc(max(0.6rem, env(safe-area-inset-top)) + 8.5rem); }
+  body:has(#discovery-options[hidden]) #active-filters { top: calc(max(0.6rem, env(safe-area-inset-top)) + 5.8rem); }
   #station { place-items: end stretch; padding: 0; }
   .station-box { width: 100%; border-radius: var(--radius-l) var(--radius-l) 0 0; padding-bottom: max(1.4rem, env(safe-area-inset-bottom)); }
   .sheet {

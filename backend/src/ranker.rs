@@ -347,6 +347,7 @@ pub struct Filters {
     pub free_only: bool,
     pub bpm_min: Option<f64>,
     pub bpm_max: Option<f64>,
+    pub bpm_equiv: bool,
 }
 
 #[cfg(test)]
@@ -364,13 +365,18 @@ pub fn pick_with(conn: &Connection, user_id: i64, n: usize, f: Filters, ranker: 
     if f.free_only {
         sql.push_str(" AND t.price = 0");
     }
-    if let Some(b) = f.bpm_min {
-        sql.push_str(" AND t.bpm >= ?");
-        args.push(Sql::Real(b));
-    }
-    if let Some(b) = f.bpm_max {
-        sql.push_str(" AND t.bpm <= ?");
-        args.push(Sql::Real(b));
+    if let (Some(lo), Some(hi), true) = (f.bpm_min, f.bpm_max, f.bpm_equiv) {
+        sql.push_str(" AND ((t.bpm BETWEEN ? AND ?) OR (t.bpm BETWEEN ? AND ?) OR (t.bpm BETWEEN ? AND ?))");
+        for b in [lo, hi, lo / 2.0, hi / 2.0, lo * 2.0, hi * 2.0] { args.push(Sql::Real(b)); }
+    } else {
+        if let Some(b) = f.bpm_min {
+            sql.push_str(" AND t.bpm >= ?");
+            args.push(Sql::Real(b));
+        }
+        if let Some(b) = f.bpm_max {
+            sql.push_str(" AND t.bpm <= ?");
+            args.push(Sql::Real(b));
+        }
     }
     if let Some(c) = ranker.condition() {
         sql.push_str(" AND (");
@@ -604,6 +610,18 @@ mod tests {
         assert!(tempo_match(Some(70.0), &[140.0]) > 0.99);
         assert!(tempo_match(Some(100.0), &[140.0]) < 0.01);
         assert_eq!(tempo_match(None, &[140.0]), 0.0);
+    }
+
+    #[test]
+    fn tempo_presets_include_half_time_but_custom_ranges_are_exact() {
+        let mut c = db::memory();
+        db::upsert_tracks(&mut c, &[track(1, "a", "T", 140.0, 0), track(2, "b", "T", 70.0, 0), track(3, "c", "T", 174.0, 0)], None).unwrap();
+        let f = Filters { bpm_min: Some(138.0), bpm_max: Some(142.0), bpm_equiv: true, ..Default::default() };
+        let mut ids: Vec<_> = pick(&c, 1, 10, f, &Classic).unwrap().iter().map(|t| t["id"].as_i64().unwrap()).collect();
+        ids.sort();
+        assert_eq!(ids, [1, 2]);
+        let exact = Filters { bpm_equiv: false, ..f };
+        assert_eq!(pick(&c, 1, 10, exact, &Classic).unwrap().len(), 1);
     }
 
     #[test]

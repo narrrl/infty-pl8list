@@ -352,6 +352,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/auth/guest", post(auth::guest))
         .route("/local/me", get(app::me))
         .route("/local/feed", get(app::feed))
+        .route("/local/charts", get(app::charts))
         .route("/local/likes", get(app::likes))
         .route("/local/track", get(app::track))
         .route("/local/artist", get(app::artist))

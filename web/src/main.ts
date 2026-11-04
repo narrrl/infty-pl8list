@@ -26,6 +26,7 @@ const MODE_KEY = "pl8inf.mode";
 const HINT_KEY = "pl8inf.hintShown";
 const NUDGE_KEY = "pl8inf.signInNudged";
 const COMMENTS_KEY = "pl8inf.waveComments";
+const MODE_NAMES = { classic: "for you", charts: "charts", fresh: "new", deep: "deep cuts" };
 const NUDGE_LIKES = 5; // a guest is asked to sign in after this many likes, or a first follow
 /// Timed comments on the waveform, on unless turned off.
 let waveComments = localStorage.getItem(COMMENTS_KEY) !== "0";
@@ -79,6 +80,8 @@ let mode: Mode = loadMode();
 let stats: Stats | null = null;
 let jumpOnLoad = false; // a radio just started: go to its first track as soon as it is here
 let radioDry = false; // the artist radio found nothing more; say so on its last card
+let chartLoaded = false;
+let presetTempo = false;
 /// Playing the likes in order (or shuffled) instead of the feed. Null for the feed.
 let queue: { tracks: Track[]; next: number } | null = null;
 
@@ -102,6 +105,25 @@ async function loadMore(): Promise<void> {
   if (loading) return;
   if (queue) {
     fromQueue();
+    return;
+  }
+  if (mode.mode === "charts") {
+    if (chartLoaded) { updateChartEnd(); return; }
+    loading = true;
+    const gen = feedGen;
+    const kind = chartKind.value, period = chartPeriod.value;
+    try {
+      const data = await api.chart(kind, period);
+      if (gen !== feedGen) return;
+      chartLoaded = true;
+      const label = `${kind === "sales" ? "best sellers" : "top free downloads"} · ${chartPeriod.selectedOptions[0].textContent}`;
+      const tracks = data.tracks.filter(matchesFilters).map((t) => ({ ...t, chart_label: label }));
+      if (tracks.length) addCards(tracks.map((t) => new Card(t, actions)));
+      else { jumpOnLoad = false; setStatus(data.tracks.length ? "no chart tracks match your filters. clear filters to see the chart." : "no playable tracks in this chart right now."); }
+      updateChartEnd();
+    } catch (err) {
+      if (gen === feedGen) setStatus(`couldn't load chart: ${(err as Error).message}`);
+    } finally { if (gen === feedGen) loading = false; }
     return;
   }
   loading = true;
@@ -215,6 +237,7 @@ function activate(idx: number): void {
   }, PRELOAD_AFTER_MS);
   if (idx >= cards.length - PREFETCH_AHEAD) loadMore();
   updateRadioEnd();
+  updateChartEnd();
   showUpNext();
   cards.forEach((c, i) => { if (c.el && Math.abs(i - idx) > KEEP_BUILT) c.release(); });
 }
@@ -773,6 +796,15 @@ $("history-clear").addEventListener("click", () => {
 const bpmMin = filtersForm.elements.namedItem("bpm_min") as HTMLInputElement;
 const bpmMax = filtersForm.elements.namedItem("bpm_max") as HTMLInputElement;
 const bpmOut = $("bpm-out");
+const activeFilters = $<HTMLButtonElement>("active-filters");
+
+function matchesFilters(t: Track): boolean {
+  if (filters.free === "1" && t.price !== 0) return false;
+  if (!filters.bpm_min && !filters.bpm_max) return true;
+  if (t.bpm == null) return false;
+  const lo = Number(filters.bpm_min || 0), hi = Number(filters.bpm_max || Infinity);
+  return (filters.bpm_equiv === "1" ? [t.bpm, t.bpm * 2, t.bpm / 2] : [t.bpm]).some((b) => b >= lo && b <= hi);
+}
 
 function loadFilters(): Filters {
   try {
@@ -800,8 +832,12 @@ function showFilters(): void {
   (filtersForm.elements.namedItem("free") as HTMLInputElement).checked = filters.free === "1";
   bpmMin.value = filters.bpm_min || String(BPM_RANGE[0]);
   bpmMax.value = filters.bpm_max || String(BPM_RANGE[1]);
+  presetTempo = filters.bpm_equiv === "1";
   showBpm();
   filtersBtn.classList.toggle("active", Object.keys(filters).length > 0);
+  const labels = [filters.free === "1" ? "free only" : "", filters.bpm_min || filters.bpm_max ? `${filters.bpm_min || "any"}–${filters.bpm_max || "any"} bpm${filters.bpm_equiv ? " ± half/double" : ""}` : ""].filter(Boolean);
+  activeFilters.hidden = !labels.length;
+  activeFilters.textContent = `${labels.join(" · ")}  × clear`;
 }
 
 function applyFilters(): void {
@@ -809,6 +845,7 @@ function applyFilters(): void {
   if ((filtersForm.elements.namedItem("free") as HTMLInputElement).checked) filters.free = "1";
   if (Number(bpmMin.value) > BPM_RANGE[0]) filters.bpm_min = bpmMin.value;
   if (Number(bpmMax.value) < BPM_RANGE[1]) filters.bpm_max = bpmMax.value;
+  if (presetTempo && filters.bpm_min && filters.bpm_max) filters.bpm_equiv = "1";
   localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
   showFilters();
   Sheet.closeAll();
@@ -818,20 +855,26 @@ function applyFilters(): void {
 /// Drop cards after the current one so a new filter or mode applies right away.
 function refill(): void {
   queue = null;
+  if (mode.mode === "charts") jumpOnLoad = true;
   for (const c of cards.splice(active + 1)) c.release();
   pager.refresh();
   feedGen++;
+  chartLoaded = false;
+  setStatus("");
   loading = false;
   loadMore();
 }
 
-for (const input of [bpmMin, bpmMax]) input.addEventListener("input", showBpm);
+for (const input of [bpmMin, bpmMax]) input.addEventListener("input", () => { presetTempo = false; showBpm(); });
 for (const b of filtersForm.querySelectorAll<HTMLButtonElement>("[data-bpm]")) {
   b.addEventListener("click", () => {
     [bpmMin.value, bpmMax.value] = b.dataset.bpm!.split("-");
+    presetTempo = b.dataset.bpm !== "60-200";
     showBpm();
   });
 }
+
+activeFilters.addEventListener("click", () => { filters = {}; localStorage.setItem(FILTERS_KEY, "{}"); showFilters(); refill(); });
 
 function showSetting(name: string, value: string): void {
   for (const input of filtersForm.querySelectorAll<HTMLInputElement>(`input[name=${name}]`)) input.checked = input.value === value;
@@ -938,11 +981,13 @@ function showSleep(): void {
 
 const modeChip = $("mode-chip");
 const modeTabs = $("mode-tabs");
-const MODE_NAMES = { classic: "for you", riddim: "riddim", fresh: "fresh", deep: "deep cuts" };
+const chartKind = $<HTMLSelectElement>("chart-kind");
+const chartPeriod = $<HTMLSelectElement>("chart-period");
 
 function loadMode(): Mode {
   try {
     const m = JSON.parse(localStorage.getItem(MODE_KEY) || "null");
+    if (m?.mode === "riddim") return { mode: "classic" };
     if (m?.mode === "artist" ? typeof m.artist === "string" && typeof m.name === "string" : m?.mode in MODE_NAMES) return m;
   } catch { /* fall through */ }
   return { mode: "classic" };
@@ -955,6 +1000,7 @@ function showMode(): void {
   const chip = mode.mode === "artist" || queue !== null;
   modeChip.hidden = !chip;
   modeTabs.hidden = chip;
+  $("discovery-options").hidden = chip || mode.mode !== "charts";
   for (const b of modeTabs.querySelectorAll<HTMLButtonElement>("button")) {
     b.setAttribute("aria-pressed", String(b.dataset.mode === mode.mode));
   }
@@ -976,6 +1022,7 @@ function setMode(m: Mode): void {
   radioDry = false;
   updateRadioEnd();
   if (JSON.stringify(m) === JSON.stringify(mode) && !queue) return;
+  if (m.mode === "charts") jumpOnLoad = true;
   mode = m;
   queue = null;
   localStorage.setItem(MODE_KEY, JSON.stringify(mode));
@@ -987,7 +1034,17 @@ function setMode(m: Mode): void {
 
 modeChip.addEventListener("click", () => setMode({ mode: "classic" }));
 for (const b of modeTabs.querySelectorAll<HTMLButtonElement>("button")) {
-  b.addEventListener("click", () => setMode({ mode: b.dataset.mode as "classic" | "riddim" | "fresh" | "deep" }));
+  b.addEventListener("click", () => setMode({ mode: b.dataset.mode as "classic" | "charts" | "fresh" | "deep" }));
+}
+
+for (const select of [chartKind, chartPeriod]) select.addEventListener("change", () => { jumpOnLoad = true; refill(); });
+
+function updateChartEnd(): void {
+  if (mode.mode === "charts" && chartLoaded && active >= cards.length - 1 && cards[active]?.track.chart_rank) {
+    setStatus("end of chart · change the chart or return to your feed");
+  } else if (mode.mode === "charts" && cards[active]?.track.chart_rank) {
+    setStatus("");
+  }
 }
 
 const station = new Station((m) => {

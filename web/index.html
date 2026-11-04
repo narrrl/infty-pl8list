@@ -42,8 +42,8 @@
     <span class="logo"><svg aria-hidden="true"><use href="#i-rewind"/></svg><span class="logo-pl8">pl8list </span><b>rewind</b></span>
     <nav id="mode-tabs" aria-label="feed">
       <button type="button" data-mode="classic">for you</button>
-      <button type="button" data-mode="riddim">riddim</button>
-      <button type="button" data-mode="fresh">fresh</button>
+      <button type="button" data-mode="charts">charts</button>
+      <button type="button" data-mode="fresh">new</button>
       <button type="button" data-mode="deep">deep cuts</button>
     </nav>
     <button id="mode-chip" type="button" title="back to your feed" hidden>
@@ -60,6 +60,11 @@
       <button id="account-btn" type="button" class="avatar-btn" title="account" aria-label="account" aria-controls="account"></button>
     </div>
   </header>
+  <div id="discovery-options" hidden>
+    <label>chart <select id="chart-kind"><option value="sales">best sellers</option><option value="free">top free downloads</option></select></label>
+    <label>period <select id="chart-period"><option value="week">this week</option><option value="year">this year</option><option value="all-time">all time</option></select></label>
+  </div>
+  <button type="button" id="active-filters" hidden></button>
 
   <div id="login" hidden>
     <div class="login-box">
@@ -109,16 +114,17 @@
       <p class="setting-note">Apply these changes to refresh your feed.</p>
       <label class="switch"><input type="checkbox" name="free"> <span>free downloads only</span></label>
       <div class="bpm">
-        <div class="bpm-head"><span>bpm</span><output id="bpm-out">any</output></div>
+        <div class="bpm-head"><span>tempo (bpm)</span><output id="bpm-out">any</output></div>
+        <p class="setting-note">Presets include half and double time; custom ranges use the exact BPM.</p>
         <div class="range2">
           <input type="range" name="bpm_min" min="60" max="200" step="1" value="60" aria-label="lowest bpm">
           <input type="range" name="bpm_max" min="60" max="200" step="1" value="200" aria-label="highest bpm">
         </div>
         <div class="presets">
           <button type="button" data-bpm="60-200">any</button>
-          <button type="button" data-bpm="138-142">140</button>
-          <button type="button" data-bpm="148-152">150</button>
-          <button type="button" data-bpm="165-178">170</button>
+          <button type="button" data-bpm="138-142">~140</button>
+          <button type="button" data-bpm="148-152">~150</button>
+          <button type="button" data-bpm="165-178">~170</button>
         </div>
       </div>
       <div class="sheet-actions">

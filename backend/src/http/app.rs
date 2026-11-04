@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use super::{App, CurrentUser, Res, St, json_error, no_store};
-use crate::{db, ranker, sync};
+use crate::{db, pl8::normalize, ranker, sync};
 
 const EVENT_KINDS: &[&str] = &["play", "like", "unlike", "skip", "complete", "dislike", "undislike"];
 /// On a cold start the crawler needs a few seconds before there is anything to serve.
@@ -65,6 +65,35 @@ fn num(q: &HashMap<String, String>, name: &str) -> Option<f64> {
     q.get(name).and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite())
 }
 
+pub async fn charts(State(app): St, Extension(current): Extension<CurrentUser>, Query(q): Query<HashMap<String, String>>) -> Res {
+    let user = match reader(&app, &current) { Ok(u) => u, Err(r) => return Ok(r) };
+    let period = q.get("period").map(String::as_str).unwrap_or("week");
+    if !matches!(period, "week" | "year" | "all-time") { return Ok(json_error(StatusCode::BAD_REQUEST, "unknown chart period")); }
+    let kind = q.get("kind").map(String::as_str).unwrap_or("sales");
+    let section = match kind { "sales" => "bestSellers", "free" => "recommended", _ => return Ok(json_error(StatusCode::BAD_REQUEST, "unknown chart")) };
+    let data = match app.pl8.charts(period).await? { Some(d) => d, None => return Ok(json_error(StatusCode::BAD_GATEWAY, "chart unavailable")) };
+    let Some(items) = data.get(section).and_then(|v| v.get("items")).and_then(Value::as_array) else {
+        return Ok(json_error(StatusCode::BAD_GATEWAY, "chart unavailable"));
+    };
+    let rows: Vec<_> = items.iter().enumerate().filter_map(|(i, item)| normalize::item(item).map(|t| (i + 1, t))).collect();
+    let all: Vec<_> = rows.iter().map(|(_, t)| t.clone()).collect();
+    let uid = user.id;
+    let mut tracks = app.db.call(move |c| {
+        db::upsert_tracks(c, &all, None)?;
+        let mut out = Vec::new();
+        for (rank, t) in rows {
+            if !t.full_access && t.preview_upload_id.is_none() { continue; }
+            if let Some(mut v) = ranker::track_by_path(c, &t.handle, &t.slug)? {
+                v["chart_rank"] = json!(rank);
+                out.push(v);
+            }
+        }
+        Ok(out)
+    }).await?;
+    mark_followed(&app, uid, &mut tracks).await?;
+    Ok((no_store(), Json(json!({ "tracks": tracks }))).into_response())
+}
+
 pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Query(q): Query<HashMap<String, String>>) -> Res {
     let user = match reader(&app, &current) {
         Ok(u) => u,
@@ -83,6 +112,7 @@ pub async fn feed(State(app): St, Extension(current): Extension<CurrentUser>, Qu
         free_only: q.get("free").map(String::as_str) == Some("1"),
         bpm_min: num(&q, "bpm_min"),
         bpm_max: num(&q, "bpm_max"),
+        bpm_equiv: q.get("bpm_equiv").map(String::as_str) == Some("1"),
     };
     resync_if_due(&app, &current).await;
     let deadline = Instant::now() + FEED_WAIT;

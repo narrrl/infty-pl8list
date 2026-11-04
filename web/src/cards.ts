@@ -219,6 +219,7 @@ export class Card {
 
   /// Where a radio track comes from, e.g. "Lower radio · via Motus".
   private whyText(): string {
+    if (this.track.chart_rank && this.track.chart_label) return `#${this.track.chart_rank} · ${this.track.chart_label} · pl8list`;
     const { station } = this;
     const why = this.track.why;
     if (!station) return "";

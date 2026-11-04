@@ -165,6 +165,11 @@ impl Pl8 {
         self.get_json(&["best-selling-artists"], &[], Some("routes/best-selling-artists"), None).await
     }
 
+    /// The public charts: `period` controls sales, `downloads-period` free downloads.
+    pub async fn charts(&self, period: &str) -> anyhow::Result<Option<Value>> {
+        self.get_json(&["best-sellers"], &[("period", period.to_string()), ("downloads-period", period.to_string())], Some("routes/best-sellers"), None).await
+    }
+
     pub async fn activity_ticker(&self) -> anyhow::Result<Option<Value>> {
         self.get_json(&["api", "activity-ticker"], &[], None, None).await
     }

@@ -383,6 +383,36 @@ async fn token_rotation_keeps_the_pl8list_connection() {
 }
 
 #[tokio::test]
+async fn charts_keep_upstream_order_and_include_previously_served_tracks() {
+    let upstream = MockServer::start().await;
+    let item = |id: i64| serde_json::json!({
+        "track": { "id": id, "slug": format!("s{id}"), "title": format!("track {id}"), "isPublic": true,
+                   "user": { "handle": "artist", "name": "Artist" }, "price": 0 },
+        "hasFullAccess": true
+    });
+    Mock::given(method("GET")).and(path("/best-sellers"))
+        .and(query_param("period", "year")).and(query_param("downloads-period", "year"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "bestSellers": {"items": [item(2), item(1)]}, "recommended": {"items": [item(1), item(2)]}
+        }))).mount(&upstream).await;
+    let (r, app, _) = setup("charts", &upstream.uri()).await;
+    let token = app.db.call(|c| {
+        crate::db::upsert_user(c, 5, "tester", None, None)?;
+        crate::db::add_event(c, 5, 2, "served", None)?;
+        crate::db::create_session(c, 5)
+    }).await.unwrap();
+    let cookie = format!("__Host-pl8inf={token}");
+    let get = |uri: &str| r.clone().oneshot(req("GET", uri, None, Some(&cookie), "203.0.113.1"));
+    let body = json_body(get("/local/charts?kind=sales&period=year").await.unwrap()).await;
+    assert_eq!(body["tracks"][0]["id"], 2);
+    assert_eq!(body["tracks"][0]["chart_rank"], 1);
+    assert_eq!(body["tracks"][1]["id"], 1);
+    let body = json_body(get("/local/charts?kind=free&period=year").await.unwrap()).await;
+    assert_eq!(body["tracks"][0]["id"], 1);
+    assert_eq!(get("/local/charts?period=month").await.unwrap().status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn feed_modes_filter_and_tag_tracks() {
     let (r, app, _) = setup("modes", "http://127.0.0.1:9").await;
     let token = app
