@@ -792,7 +792,6 @@ $("history-clear").addEventListener("click", () => {
 const bpmMin = filtersForm.elements.namedItem("bpm_min") as HTMLInputElement;
 const bpmMax = filtersForm.elements.namedItem("bpm_max") as HTMLInputElement;
 const bpmOut = $("bpm-out");
-const activeFilters = $<HTMLButtonElement>("active-filters");
 
 function matchesFilters(t: Track): boolean {
   if (filters.free === "1" && t.price !== 0) return false;
@@ -831,9 +830,6 @@ function showFilters(): void {
   presetTempo = filters.bpm_equiv === "1";
   showBpm();
   filtersBtn.classList.toggle("active", Object.keys(filters).length > 0);
-  const labels = [filters.free === "1" ? "free only" : "", filters.bpm_min || filters.bpm_max ? `${filters.bpm_min || "any"}–${filters.bpm_max || "any"} bpm${filters.bpm_equiv ? " ± half/double" : ""}` : ""].filter(Boolean);
-  activeFilters.hidden = !labels.length;
-  activeFilters.textContent = `${labels.join(" · ")}  × clear`;
 }
 
 function applyFilters(): void {
@@ -870,7 +866,6 @@ for (const b of filtersForm.querySelectorAll<HTMLButtonElement>("[data-bpm]")) {
   });
 }
 
-activeFilters.addEventListener("click", () => { filters = {}; localStorage.setItem(FILTERS_KEY, "{}"); showFilters(); refill(); });
 
 function showSetting(name: string, value: string): void {
   for (const input of filtersForm.querySelectorAll<HTMLInputElement>(`input[name=${name}]`)) input.checked = input.value === value;
