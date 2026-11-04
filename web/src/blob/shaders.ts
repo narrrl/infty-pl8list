@@ -265,25 +265,22 @@ void main() {
   // Looking through the surface bends the artwork like water does.
   vec2 bend = n.xy * (0.22 + 0.1 * uDrop) * uMorph;
   vec2 uv = 0.5 + vec2(vObj.x, -vObj.y) * 0.48 - vec2(bend.x, -bend.y) * 0.5;
-  vec2 split = n.xy * (0.001 + 0.003 * uKick + 0.002 * uSnare) * uMorph;
+  vec2 split = n.xy * (0.008 + 0.025 * uKick + 0.015 * uSnare + 0.01 * uGrowl * uBass) * uMorph;
   // Turned sideways the projection smears; blur it into flowing colour instead.
   float blur = 4.0 * pow(1.0 - abs(vObj.z), 3.0) * uMorph;
   vec3 art = vec3(texture(uArt, uv + split, blur).r, texture(uArt, uv, blur).g, texture(uArt, uv - split, blur).b);
-  float luminance = dot(art, vec3(0.2126, 0.7152, 0.0722));
-  vec3 trace = mix(vec3(luminance), art, 0.22);
-  // Preserve the flat artwork during entry; blackened metal takes over as it morphs.
-  art = mix(art, vec3(0.035, 0.038, 0.042) + trace * 0.22, uMorph);
+  art = mix(art, smoothstep(0.0, 1.0, art), 0.6 * uDrop);
 
   vec3 light = normalize(vec3(-0.5, 0.7, 0.6));
   float spec = pow(max(dot(n, normalize(light + v)), 0.0), mix(40.0, 140.0, uMetal)) * mix(0.35, 0.8, uMetal);
   // The hue sways around the accent but never leaves it, so the drop stays in the
   // card's colours.
-  vec3 rim = hueRotate(mix(vec3(0.72), uAccent, 0.16), uHue + uIri * (fres + 0.5 * sin(uTime * 0.3)));
+  vec3 rim = hueRotate(uAccent, uHue + uIri * (fres + 0.5 * sin(uTime * 0.3)));
   rim = mix(rim, vec3(1.0, 0.35, 0.1), uHeat * 0.6);
   // Oil-slick fringes: each channel cycles at its own phase across the edge, worn
   // over the accent, more for iridescent tracks.
   vec3 slick = 0.5 + 0.5 * cos(6.2831853 * (fres * 1.6 + vec3(0.0, 0.33, 0.67) + uTime * 0.05));
-  rim = mix(rim, rim * 0.4 + slick * length(rim) * 0.75, 0.035 + 0.08 * uIri);
+  rim = mix(rim, rim * 0.4 + slick * length(rim) * 0.75, 0.25 + 0.5 * uIri);
   // The fresnel per channel, red reaching in further than blue: a lens fringe.
   float nv = 1.0 - max(dot(n, v), 0.0);
   vec3 fresC = vec3(nv * nv * nv * mix(1.0, nv, -0.35), fres, nv * nv * nv * mix(1.0, nv, 0.35));
@@ -293,13 +290,13 @@ void main() {
   // Out on a spike the liquid turns to ink, like ferrofluid: the artwork darkens and
   // the gloss takes over.
   vec3 col = art * mix(1.0, 0.45, fres * uMorph) * (1.0 - 0.6 * vSpike);
-  col += rim * fresC * (0.3 + 0.35 * uKick + 0.15 * uDrop + 0.12 * uBass) * uMorph;
-  col += mix(rim, vec3(1.0), 0.5) * edge * (0.15 + 0.45 * uKick + 0.25 * uDrop) * uMorph;
+  col += rim * fresC * (0.65 + 0.9 * uKick + 0.5 * uDrop + 0.5 * uBass) * uMorph;
+  col += mix(rim, vec3(1.0), 0.5) * edge * (0.3 + 1.2 * uKick + 0.8 * uDrop) * uMorph;
   col += spec * (1.0 + 0.8 * vSpike) * uMorph;
   // Gloss: a dark room lit by the accent from above, and one soft window. They stay
   // put while the surface turns under them, which is what makes a spin read.
   vec3 r = reflect(-v, n);
-  vec3 env = mix(vec3(0.015), mix(vec3(0.5), uAccent * 0.5, 0.12), pow(smoothstep(-0.4, 1.0, r.y), 2.0));
+  vec3 env = mix(vec3(0.015), uAccent * 0.5, pow(smoothstep(-0.4, 1.0, r.y), 2.0));
   env += 0.5 * smoothstep(0.92, 0.985, dot(r, normalize(vec3(-0.5, 0.7, 0.5))));
   col += env * (0.1 + 0.5 * fres + 0.5 * vSpike) * uMorph;
   // The icon sits on a disc of frosted glass, painted onto the surface so it turns

@@ -45,7 +45,7 @@ Not affiliated with pl8list.
 
 ## Screenshots
 
-The [monochrome redesign previews](docs/redesign/README.md) show the current visual treatment using a synthetic track. The live-playback captures below predate that pass.
+The [updated design previews](docs/redesign/README.md) show the current visual treatment using a synthetic track. The live-playback captures below predate that pass.
 
 ![Feed on desktop](docs/feed-desktop.png)
 
