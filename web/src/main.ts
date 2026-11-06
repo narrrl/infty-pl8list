@@ -294,12 +294,12 @@ const actions: CardActions = {
   toDrop: (c) => toDrop(c),
 };
 
-/// Seek to the next drop of the playing card, two bars early so the build is heard
+/// Seek to the next drop of the playing card, three bars early so the build is heard
 /// before it lands; past the last one, back to the first.
 function toDrop(card: Card): void {
   const a = player.audio;
   if (card !== current() || !a.duration || !card.drops.length) return;
-  const lead = 8 * beatSeconds();
+  const lead = 12 * beatSeconds();
   const times = card.drops.map((d) => Math.max(0, d * a.duration - lead));
   const next = times.find((t) => t > a.currentTime + 1) ?? times[0];
   player.seek(next);
